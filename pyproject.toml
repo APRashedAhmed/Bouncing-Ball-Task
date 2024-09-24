@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+
+[project]
+name = "Bouncing-Ball-Task"
+version = "0.0.0"
+description = "Repo for the bouncing ball task"
+authors = [
+    { name = "APRashedAhmed" }
+]
+urls = { "Homepage" = "https://github.com/APRashedAhmed/Bouncing-Ball-Task" }
+license = { text = "Not open source" }
+
+[tool.setuptools]
+packages = { find = { where = ["src"] } }

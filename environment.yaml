@@ -1,0 +1,41 @@
+name: bbt
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python>=3.9
+  - webcolors
+  - rich
+  - python-dotenv
+  - pip
+  - tqdm
+  - requests
+  - loguru
+  - ipdb
+  - seaborn
+  - numpy
+  - pandas
+  - watermark
+  - pytest
+  - doit
+  - ipython
+  - jupyterlab
+  - nodejs
+  - black
+  - isort
+  - pillow
+  - opencv
+  - pillow
+  - pytorch
+  - ipywidgets
+  - jupyterlab-spellchecker
+  - jupyterlab-lsp
+  - python-lsp-server
+
+  - pip:
+      - setuptools
+      - pre-commit
+      - jupyterlab-code-formatter
+      - -e . # Install the package in editable mode
+
