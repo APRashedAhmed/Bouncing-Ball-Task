@@ -697,18 +697,16 @@ def generate_video_parameters(
         # top or bottom), and that decreases by one until the last one
         final_y_index_bounce = meta["bounce"][
             "final_y_index_bounce"
-        ] = np.repeat(
-            np.arange(num_pos_endpoints),
-            np.arange(num_pos_endpoints, 0, -1),
-        )
+        ] = [j for i in range(num_pos_endpoints + 1) for j in range(i)]
+
 
         # Create all the indices for the bounce trials
-        indices_final_position_index_bounce = pyutils.repeat_sequence(
+        indices_final_position_index_bounce = pyutils.repeat_sequence_imbalanced(
             final_position_index_bounce,
+            final_x_index_bounce,
             num_trials_bounce,
-            shuffle=False,
             roll=True,
-        )
+        )        
 
         # Keep track of coordinate counts
         meta["bounce"][
@@ -865,11 +863,14 @@ def generate_video_parameters(
                 {
                     "idx": idx,
                     "trial": "bounce",
+                    "idx_time": final_x_position_index,
                     "idx_position": idx_position,
                     "side_left_right": side_left_right,
                     "side_top_bottom": side_top_bottom,
                     "idx_velocity_y": idx_velocity_y,
                     "length": video_lengths_f_bounce[idx],
+                    "idx_x_position": final_x_position_index,
+                    "idx_y_position": final_y_position_index,                    
                 }
             )
 
@@ -929,9 +930,10 @@ def print_task_summary(meta):
         logger.info(f"    {key:<{max_key_len + 2}}{val}")
 
 
-def print_type_stats(trials, trial_type, duration):
+def print_type_stats(trials, trial_type, duration, return_str=False):
     position, velocity, color, pccnvc, pccovc, pvc, meta = zip(*trials)
     stats_comb = [f"{nvc}-{ovc}" for nvc, ovc in zip(pccnvc, pccovc)]
+    list_messages = []
 
     trial_type_lengths_s = (
         np.array([m["length"] for m in meta]) * duration
@@ -943,9 +945,11 @@ def print_type_stats(trials, trial_type, duration):
     length_trial_s_min = np.round(min(trial_type_lengths_s), 1)
     length_trial_s_max = np.round(max(trial_type_lengths_s), 1)
 
-    logger.info(
-        f"  Num {trial_type.title()} Trials: {len(trials)} ({length_trial_total_min} min {length_trial_total_s} sec)"
-    )
+    msg = f"  Num {trial_type.title()} Trials: {len(trials)} ({length_trial_total_min} min {length_trial_total_s} sec)"
+    if return_str:
+        list_messages.append(msg)
+    else:
+        logger.info(msg)
 
     trial_type_stats = [
         ("Min Video Length (s):", length_trial_s_min),
@@ -956,13 +960,27 @@ def print_type_stats(trials, trial_type, duration):
         ("Stat Comb Splits:", Counter(stats_comb)),
     ]
 
-    if trial_type.lower() == "straight":
+    if trial_type.lower() != "catch":
         trial_type_stats += [
             ("End time Splits:", Counter(m["idx_time"] for m in meta)),
             ("Left/Right Splits:", Counter(m["side_left_right"] for m in meta)),
             ("Top/Bottom Splits:", Counter(m["side_top_bottom"] for m in meta)),
             ("Velocity Splits:", Counter(m["idx_velocity_y"] for m in meta)),
         ]
+
+    if trial_type.lower() == "bounce":
+        trial_type_stats += [
+            ("Final y position splits", Counter(m["idx_y_position"] for m in meta)),
+        ]
+        df = pd.DataFrame(meta)
+        for idx_x, df_idx in df.groupby("idx_time"):
+            trial_type_stats += [
+                (
+                    f"x={idx_x} - Final y position splits",
+                    Counter(df_idx["idx_y_position"]),
+                )
+            ]
+        # import ipdb; ipdb.set_trace()
 
     max_desc_len = max([len(desc) for (desc, _) in trial_type_stats])
     for (description, value) in trial_type_stats:
@@ -971,7 +989,14 @@ def print_type_stats(trials, trial_type, duration):
             value_str = f"{[np.round(val[1] / total, 2) for val in sorted(value.items(), key=lambda pair: pair[0])]}"
         else:
             value_str = f"{value}"
-        logger.debug(f"    {description:<{max_desc_len + 2}}{value_str}")
+        msg = f"    {description:<{max_desc_len + 2}}{value_str}"
+        if return_str:
+            list_messages.append(msg)
+        else:
+            logger.debug(msg)
+
+    if return_str:
+        return list_messages
 
 
 def generate_block_parameters(
@@ -1347,7 +1372,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dir_base",
         type=Path,
-        default=index.dir_data_raw / "hmdcpd",
+        default=index.dir_data / "hmdcpd",
         help="Base directory for output",
     )
     parser.add_argument(
@@ -1467,10 +1492,11 @@ if __name__ == "__main__":
     assert np.all(np.isclose(np.array(positions), task.sequence[-1][1][:, :2]))
     assert np.all(np.isclose(np.stack(colors), task.sequence[-1][1][:, 2:]))
 
-    samples, targets = zip(*[x for x in task])
-    samples = np.array(samples).transpose(1, 0, 2)
-    targets = np.array(targets).transpose(1, 0, 2)
+    # samples, targets = zip(*[x for x in task])
+    samples = task.samples # np.array(samples).transpose(1, 0, 2)
+    targets = task.targets #np.array(targets).transpose(1, 0, 2)
 
+    # ERROR HERE - NEED TO ADAPT TO "SOURCE" TRAGET CHANGE MODE
     color_changes = [param["color_change"] for param in task.all_parameters[1:]]
     color_changes = np.array(
         2 * [np.zeros_like(color_changes[0])] + color_changes[:-1]
@@ -1598,7 +1624,7 @@ if __name__ == "__main__":
 
         row_list.append(meta_trial)
 
-    df_meta = pd.DataFrame(row_list)
+    df_meta = pd.DataFrame(row_list)    
     path_df_trial_meta = dir_dataset / "trial_meta.csv"
     msg = f"Saving trial metadata to to {path_df_trial_meta}"
     if args.dryrun:
