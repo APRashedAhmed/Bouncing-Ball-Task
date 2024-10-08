@@ -503,3 +503,33 @@ def find_relative_path(base_path: Path, target_path: Path) -> Path:
     relative_path = Path(*([".."] * steps_up + list(steps_down)))
 
     return relative_path
+
+def repeat_sequence_imbalanced(
+        array,
+        balance,
+        length,
+        # shuffle=True,
+        roll=True,
+        # axis=0,
+        shift=-1
+):
+    output = []
+    unique_values = np.unique(balance)
+    num_values = len(unique_values)
+    value_counter = np.zeros(num_values)            
+    splits = {
+        value: array[balance == value]
+        for value in unique_values
+    }
+
+    for i in range(length):
+        if roll:
+            if i != 0 and not (i % num_values):
+                unique_values = np.roll(unique_values, shift=shift)
+
+        value = int(unique_values[i % num_values])
+        output.append(
+            splits[value][int(value_counter[value] % len(splits[value]))]
+        )
+        value_counter[value] += 1
+    return output
