@@ -26,9 +26,9 @@ def generate_video_parameters(
     size_frame: Iterable[int] = (256, 256),
     ball_radius: int = 10,
     dt: float = 0.1,
-    video_length_min_s: Optional[float] = 8.0,  # seconds
-    fixed_video_length: Optional[int] = None,
-    duration: Optional[int] = 45,
+    video_length_min_s: Optional[float] = 8.0, # seconds
+    fixed_video_length: Optional[int] = None, # frames
+    duration: Optional[int] = 45, # ms
     total_dataset_length: Optional[int] = 35,  # minutes
     mask_center: float = 0.5,
     mask_fraction: float = 1 / 3,
@@ -50,6 +50,8 @@ def generate_video_parameters(
     bounce_offset: float = 4 / 5,
     total_videos: Optional[int] = None,
     exp_scale: float = 1.0,  # seconds
+    print_stats: bool = True,
+    use_logger: bool = True,
 ):
     """Generates parameters for video simulations of a bouncing ball in a
     bounded frame.
@@ -68,6 +70,9 @@ def generate_video_parameters(
     video_length_min_s : Optional[float], default=8.0
         Length of each video in seconds.
 
+    fixed_video_length : Optional[int], default=None
+    	Imposes every video have a fixed length of `fixed_video_length` frames.
+    
     duration : Optional[int], default=45
         Duration of each video segment within the total video in frames.
 
@@ -284,7 +289,7 @@ def generate_video_parameters(
     video_length_max_ms = video_length_max_f * duration
 
     # Containers
-    trials_catch, trials_straight, trials_bounce = [], [], []
+    trials_straight, trials_bounce = [], []
     meta = {
         "num_trials": total_videos,
         "length_trials_ms": length_trials_total_ms,
@@ -296,9 +301,19 @@ def generate_video_parameters(
         "dt": dt,
         "duration": duration,
         "exp_scale": exp_scale,
-    }
+        "border_tolerance_outer": border_tolerance_outer,
+        "mask_center": mask_center,
+        "mask_fraction": mask_fraction,
+        "size_x": size_x,
+        "size_y": size_y,
+        "num_pos_endpoints": num_pos_endpoints,
+        "pvc": pvc,
+        "num_y_velocities": num_y_velocities,
+        "bounce_offset": bounce_offset,
+    }    
 
-    print_task_summary(meta)
+    if print_stats:
+        print_task_summary(meta, use_logger=use_logger)
 
     # Velocity Linspaces
     final_velocity_x_magnitude = meta["final_velocity_x_magnitude"] = (
@@ -328,113 +343,24 @@ def generate_video_parameters(
     )
 
     # Mask positions
-    meta["mask_center"] = mask_center
-    meta["mask_fraction"] = mask_fraction
     mask_size = meta["mask_size"] = int(np.round(size_x * mask_fraction))
     mask_start = meta["mask_start"] = int(
         np.round((mask_center * size_x) - mask_size / 2)
     )
     mask_end = meta["mask_end"] = size_x - mask_start
 
-    # x positions Non-Grayzone
-    nongrayzone_left_x_range = (
-        border_tolerance_outer * ball_radius,
-        mask_start,
-    )
-    nongrayzone_right_x_range = (
-        mask_end,
-        size_x - border_tolerance_outer * ball_radius,
-    )
-
     if num_trials_catch > 0:
-        meta["catch"] = {}
-        meta["catch"]["num_trials"] = num_trials_catch
-
-        # Keep track of possible catch x positions
-        meta["catch"]["nongrayzone_left_x_range"] = nongrayzone_left_x_range
-        meta["catch"]["nongrayzone_right_x_range"] = nongrayzone_right_x_range
-
-        # Catch Trial Positions
-        final_x_position_catch = pyutils.alternating_ab_sequence(
-            np.linspace(
-                *nongrayzone_left_x_range,
-                num_pos_endpoints,
-                endpoint=True,
-            ),
-            np.linspace(
-                *nongrayzone_right_x_range,
-                num_pos_endpoints,
-                endpoint=True,
-            ),
+        trials_catch, meta["catch"] = generate_catch_trials(
             num_trials_catch,
-        ).tolist()
-
-        final_y_position_catch = pyutils.repeat_sequence(
-            np.linspace(
-                border_tolerance_outer * ball_radius,
-                size_y - border_tolerance_outer * ball_radius,
-                2 * num_pos_endpoints,
-                endpoint=True,
-            ),
-            num_trials_catch,
-        ).tolist()
-        final_position_catch = zip(
-            final_x_position_catch, final_y_position_catch
+            meta,
+            video_lengths_f_catch,
+            print_stats=print_stats,
+            use_logger=use_logger,
         )
-
-        # Catch trial velocities
-        final_velocity_catch = zip(
-            [final_velocity_x_magnitude.item()] * num_trials_catch,
-            pyutils.repeat_sequence(
-                final_velocity_y_magnitude_linspace,
-                num_trials_catch,
-            ).tolist(),
-        )
-
-        # Catch colors
-        final_color_catch = pyutils.repeat_sequence(
-            np.array(DEFAULT_COLORS),
-            num_trials_catch,
-        ).tolist()
-
-        # Catch probabilities
-        pccnvc_catch = pyutils.repeat_sequence(
-            pccnvc_linspace,
-            num_trials_catch,
-        ).tolist()
-        pccovc_catch = pyutils.repeat_sequence(
-            pccovc_linspace,
-            num_trials_catch,
-        ).tolist()
-
-        # Put parameters together
-        trials_catch = list(
-            zip(
-                final_position_catch,
-                final_velocity_catch,
-                final_color_catch,
-                pccnvc_catch,
-                pccovc_catch,
-                [
-                    pvc,
-                ]
-                * num_trials_catch,
-                [
-                    {
-                        "idx": idx,
-                        "trial": "catch",
-                        "length": video_lengths_f_catch[idx],
-                    }
-                    for idx in range(num_trials_catch)
-                ],
-            )
-        )
-
-        print_type_stats(trials_catch, "catch", duration)
 
     # Normal trials
     # x position Grayzone linspace
-    x_grayzone_linspace = np.linspace(
+    x_grayzone_linspace = meta["x_grayzone_linspace"] = np.linspace(
         mask_start + border_tolerance_inner * ball_radius,
         mask_end - border_tolerance_inner * ball_radius,
         num_pos_endpoints + 2,
@@ -452,472 +378,678 @@ def generate_video_parameters(
 
     # Get the final y positions depending on num of end x
     diff = meta["diff"] = np.diff(x_grayzone_linspace).mean()
-    multipliers = np.arange(1, num_pos_endpoints + 1)
-    position_y_diff = final_velocity_y_magnitude_linspace * dt * diff
 
     # Straight conditions
     if num_trials_straight > 0:
-        meta["straight"] = {}
-        meta["straight"]["num_trials"] = num_trials_straight
-
-        indices_time_in_grayzone_straight = pyutils.repeat_sequence(
-            np.arange(num_pos_endpoints),
+        trials_straight, meta["straight"] = generate_straight_trials(
             num_trials_straight,
-            shuffle=False,
+            meta,
+            video_lengths_f_straight,
+            print_stats=print_stats,
+            use_logger=use_logger,            
         )
-
-        # Binary arrays for whether the ball enters the grayzone from the left or
-        # right and if it is going towards the top or bottom
-        sides_left_right_straight = pyutils.repeat_sequence(
-            np.array([0, 1] * num_pos_endpoints),
-            num_trials_straight,
-        )
-        sides_top_bottom_straight = pyutils.repeat_sequence(
-            np.array([0, 1] * num_pos_endpoints),
-            num_trials_straight,
-        )
-
-        # Compute the signs of the velocities using the sides
-        velocity_x_sign_straight = 2 * sides_left_right_straight - 1
-        velocity_y_sign_straight = (
-            2 * np.logical_not(sides_top_bottom_straight) - 1
-        )
-
-        # Precompute indices to sample the velocities from
-        indices_velocity_y_magnitude = pyutils.repeat_sequence(
-            np.array(list(range(num_y_velocities)) * num_pos_endpoints),
-            num_trials_straight,
-        )
-
-        # Keep track of velocities
-        meta["straight"]["indices_velocity_y_magnitude_counts"] = np.unique(
-            indices_velocity_y_magnitude,
-            return_counts=True,
-        )
-
-        # Straight y positions
-        y_distance_traversed_straight = (
-            position_y_diff[:, np.newaxis] * multipliers
-        )
-
-        # This is shape [2 x num_vel x num_pos_endpoints x 2*num_pos_endpoints]
-        # [top/bottom, each vel, num x positions, num y pos per x pos]
-        final_y_positions_straight = meta["straight"][
-            "final_y_positions"
-        ] = np.stack(
-            [
-                # Top
-                np.linspace(
-                    np.ones_like(y_distance_traversed_straight)
-                    * 2
-                    * ball_radius,
-                    size_y - y_distance_traversed_straight - 2 * ball_radius,
-                    2 * num_pos_endpoints,
-                    endpoint=True,
-                    axis=-1,
-                ),
-                # Bottom
-                np.linspace(
-                    size_y - 2 * ball_radius,
-                    y_distance_traversed_straight + 2 * ball_radius,
-                    2 * num_pos_endpoints,
-                    endpoint=True,
-                    axis=-1,
-                ),
-            ]
-        )
-
-        # Final y position linspaces
-        y_grayzone_positions = pyutils.repeat_sequence(
-            np.linspace(
-                border_tolerance_outer * ball_radius,
-                size_y - border_tolerance_outer * ball_radius,
-                2 * num_pos_endpoints,
-                endpoint=True,
-            ),
-            num_trials_straight,
-        )
-
-        # keep track of grayzone positions
-        meta["straight"]["y_grayzone_position_counts"] = np.unique(
-            y_grayzone_positions,
-            return_counts=True,
-            axis=0,
-        )
-
-        # Precompute colors
-        final_color_straight = pyutils.repeat_sequence(
-            np.array(DEFAULT_COLORS),
-            num_trials_straight,
-            shuffle=False,
-            roll=True,
-            shift=1,
-        ).tolist()
-
-        # Keep track of color counts
-        meta["straight"]["final_color_counts"] = np.unique(
-            final_color_straight,
-            return_counts=True,
-            axis=0,
-        )
-
-        # Precompute the statistics
-        pccnvc_straight = pyutils.repeat_sequence(
-            pccnvc_linspace,
-            # np.tile(pccnvc_linspace, num_pccovc),
-            num_trials_straight,
-            shuffle=False,
-            roll=True,
-            # roll=False if num_pccovc % num_pccnvc else True,
-        ).tolist()
-        pccovc_straight = pyutils.repeat_sequence(
-            pccovc_linspace,
-            # np.tile(pccovc_linspace, num_pccnvc),
-            num_trials_straight,
-            shuffle=False,
-        ).tolist()
-
-        # Keep track of pcc counts
-        meta["straight"]["pccnvc_counts"] = np.unique(
-            pccnvc_straight,
-            return_counts=True,
-        )
-        meta["straight"]["pccovc_counts"] = np.unique(
-            pccovc_straight,
-            return_counts=True,
-        )
-        meta["straight"]["pccnvc_pccovc_counts"] = np.unique(
-            [x for x in zip(*(pccnvc_straight, pccovc_straight))],
-            return_counts=True,
-            axis=0,
-        )
-
-        final_position_straight = []
-        final_velocity_straight = []
-        meta_straight = []
-
-        for idx in range(num_trials_straight):
-            # Get an index of time
-            idx_time = indices_time_in_grayzone_straight[idx]
-
-            # Choose the sides to enter the grayzone
-            side_left_right = sides_left_right_straight[idx]
-            side_top_bottom = sides_top_bottom_straight[idx]
-
-            # Get the y velocity index for this trial
-            idx_velocity_y = indices_velocity_y_magnitude[idx]
-
-            # Final velocities
-            final_velocity_x = (
-                final_velocity_x_magnitude * velocity_x_sign_straight[idx]
-            ).item()
-            final_velocity_y = (
-                final_velocity_y_magnitude_linspace[idx_velocity_y]
-                * velocity_y_sign_straight[idx]
-            ).item()
-            final_velocity_straight.append((final_velocity_x, final_velocity_y))
-
-            # Grab the final positions
-            final_position_x = x_grayzone_linspace_sides[
-                side_left_right, idx_time
-            ].item()
-            final_position_y = np.random.choice(
-                final_y_positions_straight[
-                    side_top_bottom,
-                    idx_velocity_y,
-                    idx_time,
-                ]
-            ).item()
-            final_position_straight.append((final_position_x, final_position_y))
-
-            meta_straight.append(
-                {
-                    "idx": idx,
-                    "trial": "straight",
-                    "idx_time": idx_time,
-                    "side_left_right": side_left_right,
-                    "side_top_bottom": side_top_bottom,
-                    "idx_velocity_y": idx_velocity_y,
-                    "length": video_lengths_f_straight[idx],
-                }
-            )
-
-        # Keep track of position counts
-        meta["straight"]["x_grayzone_position_counts"] = np.unique(
-            [x for x in zip(*final_position_straight)][0],
-            return_counts=True,
-        )
-
-        # Put straight parameters together
-        trials_straight = list(
-            zip(
-                final_position_straight,
-                final_velocity_straight,
-                final_color_straight,
-                pccnvc_straight,
-                pccovc_straight,
-                [
-                    pvc,
-                ]
-                * num_trials_straight,
-                meta_straight,
-            )
-        )
-
-        print_type_stats(trials_straight, "straight", duration)
 
     # Bounce conditions
     if num_trials_bounce > 0:
-        meta["bounce"] = {}
-        meta["bounce"]["num_trials"] = num_trials_bounce
-
-        # Determine bounce positions
-        left_bounce_x_positions = x_grayzone_linspace - diff * bounce_offset
-        assert mask_start < left_bounce_x_positions.min()
-        right_bounce_x_positions = x_grayzone_linspace + diff * bounce_offset
-        assert right_bounce_x_positions.max() < mask_end
-
-        # How many final positions are there
-        final_position_index_bounce = meta["bounce"][
-            "final_position_index_bounce"
-        ] = np.arange(sum(range(1, num_pos_endpoints + 1)))
-
-        # Create indices to x and y positions from these
-        # The first x position when entering the grayzone only has one coord,
-        # the second has two, until the `num_pos_endpoint`th pos which has
-        # `num_pos_endpoint` unique coords
-        final_x_index_bounce = meta["bounce"][
-            "final_x_index_bounce"
-        ] = np.repeat(
-            np.arange(num_pos_endpoints),
-            np.arange(1, num_pos_endpoints + 1),
-        )
-        # This is reversed for y - there are `num_pos_endpoints` unqiue coords
-        # for the first y coordinate (defined as being the point closest to the
-        # top or bottom), and that decreases by one until the last one
-        final_y_index_bounce = meta["bounce"][
-            "final_y_index_bounce"
-        ] = np.repeat(
-            np.arange(num_pos_endpoints),
-            np.arange(num_pos_endpoints, 0, -1),
-        )
-
-        # Create all the indices for the bounce trials
-        indices_final_position_index_bounce = pyutils.repeat_sequence(
-            final_position_index_bounce,
+        trials_bounce, meta["bounce"] = generate_bounce_trials(
             num_trials_bounce,
-            shuffle=False,
-            roll=True,
+            meta,
+            video_lengths_f_bounce,
+            print_stats=print_stats,
+            use_logger=use_logger,            
         )
-
-        # Keep track of coordinate counts
-        meta["bounce"][
-            "indices_final_position_index_bounce_counts"
-        ] = np.unique(
-            indices_final_position_index_bounce,
-            return_counts=True,
-        )
-
-        # How long does it take to get between each x position
-        time_steps_between_x = diff / (final_velocity_x_magnitude * dt)
-        # How long from a bounce to the first end position
-        time_steps_bounce = time_steps_between_x * bounce_offset
-        # How long from a bounce to all possible endpoints
-        time_steps_bounce_all_pos = (
-            np.arange(num_pos_endpoints) * time_steps_between_x
-            + time_steps_bounce
-        )
-
-        # How far does the ball travel in each of those cases
-        y_distance_traversed_bounce = meta["bounce"][
-            "y_distance_traversed_bounce"
-        ] = (
-            final_velocity_y_magnitude_linspace[:, np.newaxis]
-            * time_steps_bounce_all_pos
-            * dt
-        )
-        # What positions do those correspond to
-        final_y_positions_bounce = meta["bounce"][
-            "final_y_positions_bounce"
-        ] = np.stack(
-            [
-                y_distance_traversed_bounce + ball_radius,  # top
-                size_y - y_distance_traversed_bounce - ball_radius,  # bottom
-            ]
-        )
-
-        # Binary arrays for whether the ball enters the grayzone from the left or
-        # right and if it is going towards the top or bottom
-        sides_left_right_bounce = pyutils.repeat_sequence(
-            np.array([0, 1] * num_pos_endpoints),
-            num_trials_bounce,
-        )
-        sides_top_bottom_bounce = pyutils.repeat_sequence(
-            np.array([0, 1] * num_pos_endpoints),
-            num_trials_bounce,
-        )
-
-        # Compute the signs of the velocities using the sides
-        velocity_x_sign_bounce = 2 * sides_left_right_bounce - 1
-        velocity_y_sign_bounce = 2 * sides_top_bottom_bounce - 1
-
-        # Precompute indices to sample the velocities from
-        indices_velocity_y_magnitude = pyutils.repeat_sequence(
-            np.array(list(range(num_y_velocities)) * num_pos_endpoints),
-            num_trials_bounce,
-        )
-
-        # Keep track of velocities
-        meta["bounce"]["indices_velocity_y_magnitude_counts"] = np.unique(
-            indices_velocity_y_magnitude,
-            return_counts=True,
-        )
-
-        # Precompute colors
-        final_color_bounce = pyutils.repeat_sequence(
-            np.array(DEFAULT_COLORS),
-            num_trials_bounce,
-            shuffle=False,
-            roll=True,
-        ).tolist()
-
-        # Keep track of color counts
-        meta["bounce"]["final_color_counts"] = np.unique(
-            final_color_bounce,
-            return_counts=True,
-            axis=0,
-        )
-
-        # Precompute the statistics
-        pccnvc_bounce = pyutils.repeat_sequence(
-            pccnvc_linspace,
-            # np.tile(pccnvc_linspace, num_pccovc),
-            num_trials_bounce,
-            shuffle=False,
-        ).tolist()
-        pccovc_bounce = pyutils.repeat_sequence(
-            pccovc_linspace,
-            # np.tile(pccovc_linspace, num_pccnvc),
-            num_trials_bounce,
-            shuffle=False,
-        ).tolist()
-
-        # Keep track of pcc counts
-        meta["bounce"]["pccnvc_counts"] = np.unique(
-            pccnvc_bounce,
-            return_counts=True,
-        )
-        meta["bounce"]["pccovc_counts"] = np.unique(
-            pccovc_bounce,
-            return_counts=True,
-        )
-        meta["bounce"]["pccnvc_pccovc_counts"] = np.unique(
-            [x for x in zip(*(pccnvc_bounce, pccovc_bounce))],
-            return_counts=True,
-            axis=0,
-        )
-
-        final_x_position_indices = []
-        final_y_position_indices = []
-        final_position_bounce = []
-        final_velocity_bounce = []
-        meta_bounce = []
-
-        for idx in range(num_trials_bounce):
-            # Get an index of position
-            idx_position = indices_final_position_index_bounce[idx]
-
-            # Choose the sides to enter the grayzone
-            side_left_right = sides_left_right_bounce[idx]
-            side_top_bottom = sides_top_bottom_bounce[idx]
-
-            # Get the y velocity index for this trial
-            idx_velocity_y = indices_velocity_y_magnitude[idx]
-
-            # Final velocities
-            final_velocity_x = (
-                final_velocity_x_magnitude * velocity_x_sign_bounce[idx]
-            ).item()
-            final_velocity_y = (
-                final_velocity_y_magnitude_linspace[idx_velocity_y]
-                * velocity_y_sign_bounce[idx]
-            ).item()
-            final_velocity_bounce.append((final_velocity_x, final_velocity_y))
-
-            # Get the bounce indices
-            final_x_position_index = final_x_index_bounce[idx_position]
-            final_x_position_indices.append(final_x_position_index)
-            final_y_position_index = final_y_index_bounce[idx_position]
-            final_y_position_indices.append(final_y_position_index)
-
-            # Grab the final positions
-            final_position_x = x_grayzone_linspace_sides[
-                side_left_right, final_x_position_index
-            ].item()
-            final_position_y = final_y_positions_bounce[
-                side_top_bottom,
-                idx_velocity_y,
-                final_y_position_index,
-            ].item()
-            final_position_bounce.append((final_position_x, final_position_y))
-
-            meta_bounce.append(
-                {
-                    "idx": idx,
-                    "trial": "bounce",
-                    "idx_position": idx_position,
-                    "side_left_right": side_left_right,
-                    "side_top_bottom": side_top_bottom,
-                    "idx_velocity_y": idx_velocity_y,
-                    "length": video_lengths_f_bounce[idx],
-                }
-            )
-
-        # Keep track of position counts
-        meta["bounce"]["x_grayzone_position_indices_counts"] = np.unique(
-            final_x_position_indices,
-            return_counts=True,
-        )
-        meta["bounce"]["y_grayzone_position_indices_counts"] = np.unique(
-            final_y_position_indices,
-            return_counts=True,
-        )
-        meta["bounce"]["x_grayzone_position_counts"] = np.unique(
-            [x for x in zip(*final_position_bounce)][0],
-            return_counts=True,
-        )
-        meta["bounce"]["y_grayzone_position_counts"] = np.unique(
-            [y for y in zip(*final_position_bounce)][1],
-            return_counts=True,
-        )
-
-        # Put bounce parameters together
-        trials_bounce = list(
-            zip(
-                final_position_bounce,
-                final_velocity_bounce,
-                final_color_bounce,
-                pccnvc_bounce,
-                pccovc_bounce,
-                [
-                    pvc,
-                ]
-                * num_trials_bounce,
-                meta_bounce,
-            )
-        )
-
-        print_type_stats(trials_bounce, "bounce", duration)
 
     return trials_catch, trials_straight, trials_bounce, meta
 
+def generate_catch_trials(
+    num_trials_catch,
+    dict_meta,
+    video_lengths_f_catch,        
+    print_stats=True,
+    use_logger=True,
+):
+    border_tolerance_outer = dict_meta["border_tolerance_outer"]
+    ball_radius = dict_meta["ball_radius"]
+    mask_end = dict_meta["mask_end"]
+    mask_start = dict_meta["mask_start"]
+    size_x = dict_meta["size_x"]
+    size_y = dict_meta["size_y"]
+    num_pos_endpoints = dict_meta["num_pos_endpoints"]
+    final_velocity_x_magnitude = dict_meta["final_velocity_x_magnitude"]
+    final_velocity_y_magnitude_linspace = dict_meta["final_velocity_y_magnitude_linspace"]
+    pccnvc_linspace = dict_meta["pccnvc_linspace"]
+    pccovc_linspace = dict_meta["pccovc_linspace"]
+    pvc = dict_meta["pvc"]
+    duration = dict_meta["duration"]
+    
+    # x positions Non-Grayzone
+    nongrayzone_left_x_range = (
+        border_tolerance_outer * ball_radius,
+        mask_start,
+    )
+    nongrayzone_right_x_range = (
+        mask_end,
+        size_x - border_tolerance_outer * ball_radius,
+    )
+    
+    dict_meta_catch = {"num_trials": num_trials_catch}
 
-def print_task_summary(meta):
+    # Keep track of possible catch x positions
+    dict_meta_catch["nongrayzone_left_x_range"] = nongrayzone_left_x_range
+    dict_meta_catch["nongrayzone_right_x_range"] = nongrayzone_right_x_range
+
+    # Catch Trial Positions
+    final_x_position_catch = pyutils.alternating_ab_sequence(
+        np.linspace(
+            *nongrayzone_left_x_range,
+            num_pos_endpoints,
+            endpoint=True,
+        ),
+        np.linspace(
+            *nongrayzone_right_x_range,
+            num_pos_endpoints,
+            endpoint=True,
+        ),
+        num_trials_catch,
+    ).tolist()
+
+    final_y_position_catch = pyutils.repeat_sequence(
+        np.linspace(
+            border_tolerance_outer * ball_radius,
+            size_y - border_tolerance_outer * ball_radius,
+            2 * num_pos_endpoints,
+            endpoint=True,
+        ),
+        num_trials_catch,
+    ).tolist()
+    final_position_catch = zip(
+        final_x_position_catch, final_y_position_catch
+    )
+
+    # Catch trial velocities
+    final_velocity_catch = zip(
+        [final_velocity_x_magnitude.item()] * num_trials_catch,
+        pyutils.repeat_sequence(
+            final_velocity_y_magnitude_linspace,
+            num_trials_catch,
+        ).tolist(),
+    )
+
+    # Catch colors
+    final_color_catch = pyutils.repeat_sequence(
+        np.array(DEFAULT_COLORS),
+        num_trials_catch,
+    ).tolist()
+
+    # Catch probabilities
+    pccnvc_catch = pyutils.repeat_sequence(
+        pccnvc_linspace,
+        num_trials_catch,
+    ).tolist()
+    pccovc_catch = pyutils.repeat_sequence(
+        pccovc_linspace,
+        num_trials_catch,
+    ).tolist()
+
+    # Put parameters together
+    trials_catch = list(
+        zip(
+            final_position_catch,
+            final_velocity_catch,
+            final_color_catch,
+            pccnvc_catch,
+            pccovc_catch,
+            [
+                pvc,
+            ]
+            * num_trials_catch,
+            [
+                {
+                    "idx": idx,
+                    "trial": "catch",
+                    "length": video_lengths_f_catch[idx],
+                }
+                for idx in range(num_trials_catch)
+            ],
+        )
+    )
+
+    if print_stats:
+        print_type_stats(trials_catch, "catch", duration, use_logger=use_logger)
+
+    return trials_catch, dict_meta_catch
+
+def generate_straight_trials(
+    num_trials_straight,
+    dict_meta,
+    video_lengths_f_straight,        
+    print_stats=True,
+    use_logger=True,
+):
+    border_tolerance_outer = dict_meta["border_tolerance_outer"]
+    ball_radius = dict_meta["ball_radius"]
+    mask_end = dict_meta["mask_end"]
+    mask_start = dict_meta["mask_start"]
+    size_x = dict_meta["size_x"]
+    size_y = dict_meta["size_y"]
+    num_pos_endpoints = dict_meta["num_pos_endpoints"]
+    final_velocity_x_magnitude = dict_meta["final_velocity_x_magnitude"]
+    final_velocity_y_magnitude_linspace = dict_meta["final_velocity_y_magnitude_linspace"]
+    pccnvc_linspace = dict_meta["pccnvc_linspace"]
+    pccovc_linspace = dict_meta["pccovc_linspace"]
+    pvc = dict_meta["pvc"]
+    duration = dict_meta["duration"]
+    num_y_velocities = dict_meta["num_y_velocities"]
+    diff = dict_meta["diff"]
+    dt = dict_meta["dt"]
+    x_grayzone_linspace_sides = dict_meta["x_grayzone_linspace_sides"]
+    
+    dict_meta_straight = {"num_trials": num_trials_straight}
+
+    multipliers = np.arange(1, num_pos_endpoints + 1)
+    position_y_diff = final_velocity_y_magnitude_linspace * dt * diff    
+
+    indices_time_in_grayzone_straight = pyutils.repeat_sequence(
+        np.arange(num_pos_endpoints),
+        num_trials_straight,
+        shuffle=False,
+    )
+
+    # Binary arrays for whether the ball enters the grayzone from the left or
+    # right and if it is going towards the top or bottom
+    sides_left_right_straight = pyutils.repeat_sequence(
+        np.array([0, 1] * num_pos_endpoints),
+        num_trials_straight,
+    )
+    sides_top_bottom_straight = pyutils.repeat_sequence(
+        np.array([0, 1] * num_pos_endpoints),
+        num_trials_straight,
+    )
+
+    # Compute the signs of the velocities using the sides
+    velocity_x_sign_straight = 2 * sides_left_right_straight - 1
+    velocity_y_sign_straight = (
+        2 * np.logical_not(sides_top_bottom_straight) - 1
+    )
+
+    # Precompute indices to sample the velocities from
+    indices_velocity_y_magnitude = pyutils.repeat_sequence(
+        np.array(list(range(num_y_velocities)) * num_pos_endpoints),
+        num_trials_straight,
+    )
+
+    # Keep track of velocities
+    dict_meta_straight["indices_velocity_y_magnitude_counts"] = np.unique(
+        indices_velocity_y_magnitude,
+        return_counts=True,
+    )
+
+    # Straight y positions
+    y_distance_traversed_straight = (
+        position_y_diff[:, np.newaxis] * multipliers
+    )
+
+    # This is shape [2 x num_vel x num_pos_endpoints x 2*num_pos_endpoints]
+    # [top/bottom, each vel, num x positions, num y pos per x pos]
+    final_y_positions_straight = dict_meta_straight[
+        "final_y_positions"
+    ] = np.stack(
+        [
+            # Top
+            np.linspace(
+                np.ones_like(y_distance_traversed_straight)
+                * 2
+                * ball_radius,
+                size_y - y_distance_traversed_straight - 2 * ball_radius,
+                2 * num_pos_endpoints,
+                endpoint=True,
+                axis=-1,
+            ),
+            # Bottom
+            np.linspace(
+                size_y - 2 * ball_radius,
+                y_distance_traversed_straight + 2 * ball_radius,
+                2 * num_pos_endpoints,
+                endpoint=True,
+                axis=-1,
+            ),
+        ]
+    )
+
+    # Final y position linspaces
+    y_grayzone_positions = pyutils.repeat_sequence(
+        np.linspace(
+            border_tolerance_outer * ball_radius,
+            size_y - border_tolerance_outer * ball_radius,
+            2 * num_pos_endpoints,
+            endpoint=True,
+        ),
+        num_trials_straight,
+    )
+
+    # keep track of grayzone positions
+    dict_meta_straight["y_grayzone_position_counts"] = np.unique(
+        y_grayzone_positions,
+        return_counts=True,
+        axis=0,
+    )
+
+    # Precompute colors
+    final_color_straight = pyutils.repeat_sequence(
+        np.array(DEFAULT_COLORS),
+        num_trials_straight,
+        shuffle=False,
+        roll=True,
+        shift=1,
+    ).tolist()
+
+    # Keep track of color counts
+    dict_meta_straight["final_color_counts"] = np.unique(
+        final_color_straight,
+        return_counts=True,
+        axis=0,
+    )
+
+    # Precompute the statistics
+    pccnvc_straight = pyutils.repeat_sequence(
+        pccnvc_linspace,
+        # np.tile(pccnvc_linspace, num_pccovc),
+        num_trials_straight,
+        shuffle=False,
+        roll=True,
+        # roll=False if num_pccovc % num_pccnvc else True,
+    ).tolist()
+    pccovc_straight = pyutils.repeat_sequence(
+        pccovc_linspace,
+        # np.tile(pccovc_linspace, num_pccnvc),
+        num_trials_straight,
+        shuffle=False,
+    ).tolist()
+
+    # Keep track of pcc counts
+    dict_meta_straight["pccnvc_counts"] = np.unique(
+        pccnvc_straight,
+        return_counts=True,
+    )
+    dict_meta_straight["pccovc_counts"] = np.unique(
+        pccovc_straight,
+        return_counts=True,
+    )
+    dict_meta_straight["pccnvc_pccovc_counts"] = np.unique(
+        [x for x in zip(*(pccnvc_straight, pccovc_straight))],
+        return_counts=True,
+        axis=0,
+    )
+
+    final_position_straight = []
+    final_velocity_straight = []
+    meta_straight = []
+
+    for idx in range(num_trials_straight):
+        # Get an index of time
+        idx_time = indices_time_in_grayzone_straight[idx]
+
+        # Choose the sides to enter the grayzone
+        side_left_right = sides_left_right_straight[idx]
+        side_top_bottom = sides_top_bottom_straight[idx]
+
+        # Get the y velocity index for this trial
+        idx_velocity_y = indices_velocity_y_magnitude[idx]
+
+        # Final velocities
+        final_velocity_x = (
+            final_velocity_x_magnitude * velocity_x_sign_straight[idx]
+        ).item()
+        final_velocity_y = (
+            final_velocity_y_magnitude_linspace[idx_velocity_y]
+            * velocity_y_sign_straight[idx]
+        ).item()
+        final_velocity_straight.append((final_velocity_x, final_velocity_y))
+
+        # Grab the final positions
+        final_position_x = x_grayzone_linspace_sides[
+            side_left_right, idx_time
+        ].item()
+        final_position_y = np.random.choice(
+            final_y_positions_straight[
+                side_top_bottom,
+                idx_velocity_y,
+                idx_time,
+            ]
+        ).item()
+        final_position_straight.append((final_position_x, final_position_y))
+
+        meta_straight.append(
+            {
+                "idx": idx,
+                "trial": "straight",
+                "idx_time": idx_time,
+                "side_left_right": side_left_right,
+                "side_top_bottom": side_top_bottom,
+                "idx_velocity_y": idx_velocity_y,
+                "length": video_lengths_f_straight[idx],
+            }
+        )
+
+    # Keep track of position counts
+    dict_meta_straight["x_grayzone_position_counts"] = np.unique(
+        [x for x in zip(*final_position_straight)][0],
+        return_counts=True,
+    )
+
+    # Put straight parameters together
+    trials_straight = list(
+        zip(
+            final_position_straight,
+            final_velocity_straight,
+            final_color_straight,
+            pccnvc_straight,
+            pccovc_straight,
+            [
+                pvc,
+            ]
+            * num_trials_straight,
+            meta_straight,
+        )
+    )
+
+    if print_stats:
+        print_type_stats(
+            trials_straight,
+            "straight",
+            duration,
+            use_logger=use_logger,
+        )
+
+    return trials_straight, dict_meta_straight
+
+def generate_bounce_trials(
+    num_trials_bounce,
+    dict_meta,
+    video_lengths_f_bounce,        
+    print_stats=True,
+    use_logger=True,
+):
+    border_tolerance_outer = dict_meta["border_tolerance_outer"]
+    ball_radius = dict_meta["ball_radius"]
+    mask_end = dict_meta["mask_end"]
+    mask_start = dict_meta["mask_start"]
+    size_x = dict_meta["size_x"]
+    size_y = dict_meta["size_y"]
+    num_pos_endpoints = dict_meta["num_pos_endpoints"]
+    final_velocity_x_magnitude = dict_meta["final_velocity_x_magnitude"]
+    final_velocity_y_magnitude_linspace = dict_meta["final_velocity_y_magnitude_linspace"]
+    pccnvc_linspace = dict_meta["pccnvc_linspace"]
+    pccovc_linspace = dict_meta["pccovc_linspace"]
+    pvc = dict_meta["pvc"]
+    duration = dict_meta["duration"]
+    num_y_velocities = dict_meta["num_y_velocities"]
+    diff = dict_meta["diff"]
+    dt = dict_meta["dt"]
+    x_grayzone_linspace_sides = dict_meta["x_grayzone_linspace_sides"]
+    x_grayzone_linspace = dict_meta["x_grayzone_linspace"]
+    bounce_offset = dict_meta["bounce_offset"]
+    
+    dict_meta_bounce = {"num_trials": num_trials_bounce}
+
+    # Determine bounce positions
+    left_bounce_x_positions = x_grayzone_linspace - diff * bounce_offset
+    assert mask_start < left_bounce_x_positions.min()
+    right_bounce_x_positions = x_grayzone_linspace + diff * bounce_offset
+    assert right_bounce_x_positions.max() < mask_end
+
+    # How many final positions are there
+    final_position_index_bounce = dict_meta_bounce[
+        "final_position_index_bounce"
+    ] = np.arange(sum(range(1, num_pos_endpoints + 1)))
+
+    # Create indices to x and y positions from these
+    # The first x position when entering the grayzone only has one coord,
+    # the second has two, until the `num_pos_endpoint`th pos which has
+    # `num_pos_endpoint` unique coords
+    final_x_index_bounce = dict_meta_bounce[
+        "final_x_index_bounce"
+    ] = np.repeat(
+        np.arange(num_pos_endpoints),
+        np.arange(1, num_pos_endpoints + 1),
+    )
+    # This is reversed for y - there are `num_pos_endpoints` unqiue coords
+    # for the first y coordinate (defined as being the point closest to the
+    # top or bottom), and that decreases by one until the last one
+    final_y_index_bounce = dict_meta_bounce[
+        "final_y_index_bounce"
+    ] = np.repeat(
+        np.arange(num_pos_endpoints),
+        np.arange(num_pos_endpoints, 0, -1),
+    )
+
+    # Create all the indices for the bounce trials
+    indices_final_position_index_bounce = pyutils.repeat_sequence(
+        final_position_index_bounce,
+        num_trials_bounce,
+        shuffle=False,
+        roll=True,
+    )
+
+    # Keep track of coordinate counts
+    dict_meta_bounce[
+        "indices_final_position_index_bounce_counts"
+    ] = np.unique(
+        indices_final_position_index_bounce,
+        return_counts=True,
+    )
+
+    # How long does it take to get between each x position
+    time_steps_between_x = diff / (final_velocity_x_magnitude * dt)
+    # How long from a bounce to the first end position
+    time_steps_bounce = time_steps_between_x * bounce_offset
+    # How long from a bounce to all possible endpoints
+    time_steps_bounce_all_pos = (
+        np.arange(num_pos_endpoints) * time_steps_between_x
+        + time_steps_bounce
+    )
+
+    # How far does the ball travel in each of those cases
+    y_distance_traversed_bounce = dict_meta_bounce[
+        "y_distance_traversed_bounce"
+    ] = (
+        final_velocity_y_magnitude_linspace[:, np.newaxis]
+        * time_steps_bounce_all_pos
+        * dt
+    )
+    # What positions do those correspond to
+    final_y_positions_bounce = dict_meta_bounce[
+        "final_y_positions_bounce"
+    ] = np.stack(
+        [
+            y_distance_traversed_bounce + ball_radius,  # top
+            size_y - y_distance_traversed_bounce - ball_radius,  # bottom
+        ]
+    )
+
+    # Binary arrays for whether the ball enters the grayzone from the left or
+    # right and if it is going towards the top or bottom
+    sides_left_right_bounce = pyutils.repeat_sequence(
+        np.array([0, 1] * num_pos_endpoints),
+        num_trials_bounce,
+    )
+    sides_top_bottom_bounce = pyutils.repeat_sequence(
+        np.array([0, 1] * num_pos_endpoints),
+        num_trials_bounce,
+    )
+
+    # Compute the signs of the velocities using the sides
+    velocity_x_sign_bounce = 2 * sides_left_right_bounce - 1
+    velocity_y_sign_bounce = 2 * sides_top_bottom_bounce - 1
+
+    # Precompute indices to sample the velocities from
+    indices_velocity_y_magnitude = pyutils.repeat_sequence(
+        np.array(list(range(num_y_velocities)) * num_pos_endpoints),
+        num_trials_bounce,
+    )
+
+    # Keep track of velocities
+    dict_meta_bounce["indices_velocity_y_magnitude_counts"] = np.unique(
+        indices_velocity_y_magnitude,
+        return_counts=True,
+    )
+
+    # Precompute colors
+    final_color_bounce = pyutils.repeat_sequence(
+        np.array(DEFAULT_COLORS),
+        num_trials_bounce,
+        shuffle=False,
+        roll=True,
+    ).tolist()
+
+    # Keep track of color counts
+    dict_meta_bounce["final_color_counts"] = np.unique(
+        final_color_bounce,
+        return_counts=True,
+        axis=0,
+    )
+
+    # Precompute the statistics
+    pccnvc_bounce = pyutils.repeat_sequence(
+        pccnvc_linspace,
+        # np.tile(pccnvc_linspace, num_pccovc),
+        num_trials_bounce,
+        shuffle=False,
+    ).tolist()
+    pccovc_bounce = pyutils.repeat_sequence(
+        pccovc_linspace,
+        # np.tile(pccovc_linspace, num_pccnvc),
+        num_trials_bounce,
+        shuffle=False,
+    ).tolist()
+
+    # Keep track of pcc counts
+    dict_meta_bounce["pccnvc_counts"] = np.unique(
+        pccnvc_bounce,
+        return_counts=True,
+    )
+    dict_meta_bounce["pccovc_counts"] = np.unique(
+        pccovc_bounce,
+        return_counts=True,
+    )
+    dict_meta_bounce["pccnvc_pccovc_counts"] = np.unique(
+        [x for x in zip(*(pccnvc_bounce, pccovc_bounce))],
+        return_counts=True,
+        axis=0,
+    )
+
+    final_x_position_indices = []
+    final_y_position_indices = []
+    final_position_bounce = []
+    final_velocity_bounce = []
+    meta_bounce = []
+
+    for idx in range(num_trials_bounce):
+        # Get an index of position
+        idx_position = indices_final_position_index_bounce[idx]
+
+        # Choose the sides to enter the grayzone
+        side_left_right = sides_left_right_bounce[idx]
+        side_top_bottom = sides_top_bottom_bounce[idx]
+
+        # Get the y velocity index for this trial
+        idx_velocity_y = indices_velocity_y_magnitude[idx]
+
+        # Final velocities
+        final_velocity_x = (
+            final_velocity_x_magnitude * velocity_x_sign_bounce[idx]
+        ).item()
+        final_velocity_y = (
+            final_velocity_y_magnitude_linspace[idx_velocity_y]
+            * velocity_y_sign_bounce[idx]
+        ).item()
+        final_velocity_bounce.append((final_velocity_x, final_velocity_y))
+
+        # Get the bounce indices
+        final_x_position_index = final_x_index_bounce[idx_position]
+        final_x_position_indices.append(final_x_position_index)
+        final_y_position_index = final_y_index_bounce[idx_position]
+        final_y_position_indices.append(final_y_position_index)
+
+        # Grab the final positions
+        final_position_x = x_grayzone_linspace_sides[
+            side_left_right, final_x_position_index
+        ].item()
+        final_position_y = final_y_positions_bounce[
+            side_top_bottom,
+            idx_velocity_y,
+            final_y_position_index,
+        ].item()
+        final_position_bounce.append((final_position_x, final_position_y))
+
+        meta_bounce.append(
+            {
+                "idx": idx,
+                "trial": "bounce",
+                "idx_position": idx_position,
+                "side_left_right": side_left_right,
+                "side_top_bottom": side_top_bottom,
+                "idx_velocity_y": idx_velocity_y,
+                "length": video_lengths_f_bounce[idx],
+            }
+        )
+
+    # Keep track of position counts
+    dict_meta_bounce["x_grayzone_position_indices_counts"] = np.unique(
+        final_x_position_indices,
+        return_counts=True,
+    )
+    dict_meta_bounce["y_grayzone_position_indices_counts"] = np.unique(
+        final_y_position_indices,
+        return_counts=True,
+    )
+    dict_meta_bounce["x_grayzone_position_counts"] = np.unique(
+        [x for x in zip(*final_position_bounce)][0],
+        return_counts=True,
+    )
+    dict_meta_bounce["y_grayzone_position_counts"] = np.unique(
+        [y for y in zip(*final_position_bounce)][1],
+        return_counts=True,
+    )
+
+    # Put bounce parameters together
+    trials_bounce = list(
+        zip(
+            final_position_bounce,
+            final_velocity_bounce,
+            final_color_bounce,
+            pccnvc_bounce,
+            pccovc_bounce,
+            [
+                pvc,
+            ]
+            * num_trials_bounce,
+            meta_bounce,
+        )
+    )
+
+    if print_stats:
+        print_type_stats(
+            trials_bounce,
+            "bounce",
+            duration,
+            use_logger=use_logger,
+        )
+
+    return trials_bounce, dict_meta_bounce
+    
+
+def print_task_summary(meta, use_logger=True):
+    if use_logger:
+        out_func = logger.info
+    else:
+        out_func = print
+        
     length_trials = meta["length_trials_ms"] / 60000
     length_trials_min = int(length_trials)
     length_trials_s = np.round((length_trials % 1) * 60, 1)
-    logger.info("Dataset Generation Summary")
-    logger.info(
+    out_func("Dataset Generation Summary")
+    out_func(
         f'  Num Total Trials: {meta["num_trials"]} ({length_trials_min} min {length_trials_s} sec)'
     )
     max_key_len = max([len(key) for key in meta.keys()])
@@ -926,10 +1058,15 @@ def print_task_summary(meta):
         if key == "num_trials":
             continue
         key += ":"
-        logger.info(f"    {key:<{max_key_len + 2}}{val}")
+        out_func(f"    {key:<{max_key_len + 2}}{val}")
 
 
-def print_type_stats(trials, trial_type, duration):
+def print_type_stats(trials, trial_type, duration, use_logger=True):
+    if use_logger:
+        out_funcs = [logger.info, logger.debug]
+    else:
+        out_funcs = [print] * 2 
+    
     position, velocity, color, pccnvc, pccovc, pvc, meta = zip(*trials)
     stats_comb = [f"{nvc}-{ovc}" for nvc, ovc in zip(pccnvc, pccovc)]
 
@@ -943,7 +1080,7 @@ def print_type_stats(trials, trial_type, duration):
     length_trial_s_min = np.round(min(trial_type_lengths_s), 1)
     length_trial_s_max = np.round(max(trial_type_lengths_s), 1)
 
-    logger.info(
+    out_funcs[0](
         f"  Num {trial_type.title()} Trials: {len(trials)} ({length_trial_total_min} min {length_trial_total_s} sec)"
     )
 
@@ -956,7 +1093,7 @@ def print_type_stats(trials, trial_type, duration):
         ("Stat Comb Splits:", Counter(stats_comb)),
     ]
 
-    if trial_type.lower() == "straight":
+    if trial_type.lower() != "straight":
         trial_type_stats += [
             ("End time Splits:", Counter(m["idx_time"] for m in meta)),
             ("Left/Right Splits:", Counter(m["side_left_right"] for m in meta)),
@@ -971,7 +1108,7 @@ def print_type_stats(trials, trial_type, duration):
             value_str = f"{[np.round(val[1] / total, 2) for val in sorted(value.items(), key=lambda pair: pair[0])]}"
         else:
             value_str = f"{value}"
-        logger.debug(f"    {description:<{max_desc_len + 2}}{value_str}")
+        out_funcs[1](f"    {description:<{max_desc_len + 2}}{value_str}")
 
 
 def generate_block_parameters(
@@ -1044,9 +1181,14 @@ def generate_block_parameters(
     return list(zip(blocks, meta_blocks))
 
 
-def print_block_stats(params_blocks, duration):
+def print_block_stats(params_blocks, duration, use_logger=True):
+    if use_logger:
+        out_funcs = [logger.info, logger.debug, logger.trace]
+    else:
+        out_funcs = [print] * 3
+    
     blocks, meta_blocks = zip(*params_blocks)
-    logger.info(
+    out_funcs[0](
         f"  Num blocks: {len(blocks)} - Lengths = {[len(block) for block in blocks]}"
     )
 
@@ -1064,7 +1206,7 @@ def print_block_stats(params_blocks, duration):
         length_block_s_min = np.round(min(block_lengths_s), 1)
         length_block_s_max = np.round(max(block_lengths_s), 1)
 
-        logger.debug(
+        out_funcs[1](
             f"    Block {i+1} - {len(block)} videos ({length_block_total_min} min {length_block_total_s} sec)"
         )
 
@@ -1085,7 +1227,7 @@ def print_block_stats(params_blocks, duration):
                 # value_str = f"{sorted(value.items(), key=lambda pair: pair[0])}"
             else:
                 value_str = f"{value}"
-            logger.trace(f"      {description:<{max_desc_len + 2}}{value_str}")
+            out_funcs[2](f"      {description:<{max_desc_len + 2}}{value_str}")
 
 
 def plot_params(
@@ -1191,8 +1333,126 @@ def plot_params(
             return_path=True,
         )
 
+def generate_video_dataset(
+    human_video_parameters,
+    task_parameters,    
+    shuffle=True,
+    validate=True,
+):
+    *params, dict_metadata = generate_video_parameters(
+        **human_video_parameters
+    )
+    # Assuming each parameter in params is a list of tuples, and you want to flatten and separate them
+    params_flattened = list(itertools.chain.from_iterable(params))
+    num_params = len(params_flattened)
 
-if __name__ == "__main__":
+    # Shuffle if asked
+    if shuffle:
+        random.shuffle(params_flattened)
+    
+    positions, velocities, colors, pccnvcs, pccovcs, pvcs, meta_trials = (
+        list(param) for param in zip(*params_flattened)
+    )
+
+    task = BouncingBallTask(
+        batch_size=len(positions),
+        probability_velocity_change=pvcs,
+        probability_color_change_no_velocity_change=pccnvcs,
+        probability_color_change_on_velocity_change=pccovcs,
+        initial_position=positions,
+        initial_velocity=velocities,
+        initial_color=colors,
+        **task_parameters,
+    )
+
+    samples = task.samples
+    targets = task.targets
+
+    if validate:
+        initial_params = np.concatenate(
+            [np.array(positions), np.stack(colors)],
+            axis=1,
+        )
+        assert np.all(np.isclose(np.array(positions), targets[:, -1, :2]))
+        assert np.all(np.isclose(np.stack(colors), targets[:, -1, 2:5]))
+
+    # Update metadata
+    dict_metadata["min_t_color_change"] = task.min_t_color_change
+    # Grab relevant variables
+    max_length = dict_metadata["video_length_max_f"]
+
+    list_samples, list_targets, list_data = [], [], []
+
+    for idx_param, (param, sample, target) in enumerate(
+        zip(
+            params_flattened,
+            samples,
+            targets,
+        )
+    ):
+        # Grab the relevant params
+        position, velocity, color, pccnvc, pccovc, pvc, meta_trial = param
+        length = meta_trial["length"]
+
+        # Shorten the videos to the specified length
+        list_samples.append(sample := sample[max_length - length :])
+        list_targets.append(target := target[max_length - length :])
+
+        # Update the metadata for the trial
+        meta_trial.update(
+            {
+                "Final Color": colors[np.argmax(target[-1, 2:])],
+                "Final X Position": sample[-1, 0],
+                "Final Y Position": sample[-1, 1],
+                "Final X Velocity": -velocity[0],
+                "Final Y Velocity": -velocity[1],
+                "PCCNVC": pccnvc,
+                "PCCOVC": pccovc,
+                "PVC": pvc,
+            }
+        )
+        list_data.append(meta_trial)
+
+    df_data = pd.DataFrame(list_data)
+
+    # effective statistics
+    timesteps = np.array([target.shape[0] for target in list_targets])
+    change_sums = np.array([target.sum(axis=0) for target in list_targets])[:, -4:]
+
+    df_data["PCCNVC_effective"] = (
+        change_sums[:, -1] /
+        (timesteps - change_sums[:, -4] - change_sums[:, -3])
+    )
+    df_data["PCCOVC_effective"] = change_sums[:, -2] / change_sums[:, -4]
+    df_data["PVC_effective"] = change_sums[:, -3] / timesteps
+    df_data["Bounces"] = change_sums[:, -4].astype(int)
+    df_data["Random Bounces"] = change_sums[:, -3].astype(int)
+    df_data["Color Change Bounce"] = change_sums[:, -2].astype(int)
+    df_data["Color Change Random"] = change_sums[:, -1].astype(int)
+
+    # Overall condition descriptors
+    hzs = df_data["PCCNVC"].unique()
+    conts = df_data["PCCOVC"].unique()    
+    df_data["Hazard Rate"] = df_data["PCCNVC"].apply(
+        lambda hz: (
+            "Low" if np.isclose(hz, hzs[0]) else
+            "High" if np.isclose(hz, hzs[1]) else
+            "Unknown"
+        )
+    )
+    df_data["Contingency"] = df_data["PCCOVC"].apply(
+        lambda cont: (
+            "Low" if np.isclose(cont, conts[0]) else
+            "Medium" if np.isclose(cont, conts[1]) else
+            "High" if np.isclose(cont, conts[2]) else
+            "Unknown"
+        )
+    )
+
+    return task, list_samples, list_targets, df_data, dict_metadata
+
+
+if __name__ == "__main__":    
     parser = argparse.ArgumentParser(
         description="Human Bouncing Ball Data Generation Script"
     )
@@ -1432,9 +1692,9 @@ if __name__ == "__main__":
         for i, (block, _) in enumerate(params_blocks)
         for param in block
     ]
-    flattened_params = [param for block, _ in params_blocks for param in block]
+    params_flattened = [param for block, _ in params_blocks for param in block]
     positions, velocities, colors, pccnvcs, pccovcs, pvcs, meta_trials = (
-        list(param) for param in zip(*flattened_params)
+        list(param) for param in zip(*params_flattened)
     )
 
     task = BouncingBallTask(
@@ -1489,7 +1749,7 @@ if __name__ == "__main__":
 
     for idx_param, (param, sample, target, color_change, block) in enumerate(
         zip(
-            flattened_params,
+            params_flattened,
             samples,
             targets,
             color_changes,
