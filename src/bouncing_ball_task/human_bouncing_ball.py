@@ -17,9 +17,14 @@ from loguru import logger
 from tqdm import tqdm
 
 from bouncing_ball_task import index
-from bouncing_ball_task.constants import CONSTANT_COLOR, DEFAULT_COLORS
+from bouncing_ball_task.constants import (
+    CONSTANT_COLOR,
+    DEFAULT_COLORS,
+    default_ball_colors,
+    default_color_to_idx_dict,
+)
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
-from bouncing_ball_task.utils import gif, logutils, pyutils
+from bouncing_ball_task.utils import gif, logutils, pyutils, taskutils
 
 
 def generate_video_parameters(
@@ -144,6 +149,12 @@ def generate_video_parameters(
     exp_scale : float, default=1.0
         Scale factor applied to exponential distributions for time-related
         parameters.
+
+    print_stats : bool, default=True,
+    	Print stats for each trial type.
+
+    use_logger : bool, default=True,
+    	Use the logger methods or print function to display stats
 
     Returns
     -------
@@ -425,10 +436,10 @@ def generate_catch_trials(
     # x positions Non-Grayzone
     nongrayzone_left_x_range = (
         border_tolerance_outer * ball_radius,
-        mask_start,
+        mask_start - border_tolerance_outer * ball_radius,
     )
     nongrayzone_right_x_range = (
-        mask_end,
+        mask_end + border_tolerance_outer * ball_radius,
         size_x - border_tolerance_outer * ball_radius,
     )
     
@@ -507,6 +518,12 @@ def generate_catch_trials(
                 {
                     "idx": idx,
                     "trial": "catch",
+                    "idx_time": -1,
+                    "side_left_right": -1,
+                    "side_top_bottom": -1,
+                    "idx_velocity_y": -1,
+                    "idx_x_position": -1,
+                    "idx_y_position": -1,
                     "length": video_lengths_f_catch[idx],
                 }
                 for idx in range(num_trials_catch)
@@ -553,18 +570,18 @@ def generate_straight_trials(
         np.arange(num_pos_endpoints),
         num_trials_straight,
         shuffle=False,
-    )
+    ).astype(int)
 
     # Binary arrays for whether the ball enters the grayzone from the left or
     # right and if it is going towards the top or bottom
     sides_left_right_straight = pyutils.repeat_sequence(
         np.array([0, 1] * num_pos_endpoints),
         num_trials_straight,
-    )
+    ).astype(int)
     sides_top_bottom_straight = pyutils.repeat_sequence(
         np.array([0, 1] * num_pos_endpoints),
         num_trials_straight,
-    )
+    ).astype(int)
 
     # Compute the signs of the velocities using the sides
     velocity_x_sign_straight = 2 * sides_left_right_straight - 1
@@ -576,7 +593,7 @@ def generate_straight_trials(
     indices_velocity_y_magnitude = pyutils.repeat_sequence(
         np.array(list(range(num_y_velocities)) * num_pos_endpoints),
         num_trials_straight,
-    )
+    ).astype(int)
 
     # Keep track of velocities
     dict_meta_straight["indices_velocity_y_magnitude_counts"] = np.unique(
@@ -727,6 +744,8 @@ def generate_straight_trials(
                 "side_left_right": side_left_right,
                 "side_top_bottom": side_top_bottom,
                 "idx_velocity_y": idx_velocity_y,
+                "idx_x_position": -1,
+                "idx_y_position": -1,
                 "length": video_lengths_f_straight[idx],
             }
         )
@@ -812,7 +831,7 @@ def generate_bounce_trials(
     ] = np.repeat(
         np.arange(num_pos_endpoints),
         np.arange(1, num_pos_endpoints + 1),
-    )
+    ).astype(int)
     # This is reversed for y - there are `num_pos_endpoints` unqiue coords
     # for the first y coordinate (defined as being the point closest to the
     # top or bottom), and that decreases by one until the last one
@@ -827,7 +846,7 @@ def generate_bounce_trials(
         final_x_index_bounce,
         num_trials_bounce,
         roll=True,
-    )        
+    )
 
     # Keep track of coordinate counts
     dict_meta_bounce[
@@ -870,11 +889,11 @@ def generate_bounce_trials(
     sides_left_right_bounce = pyutils.repeat_sequence(
         np.array([0, 1] * num_pos_endpoints),
         num_trials_bounce,
-    )
+    ).astype(int)
     sides_top_bottom_bounce = pyutils.repeat_sequence(
         np.array([0, 1] * num_pos_endpoints),
         num_trials_bounce,
-    )
+    ).astype(int)
 
     # Compute the signs of the velocities using the sides
     velocity_x_sign_bounce = 2 * sides_left_right_bounce - 1
@@ -884,7 +903,7 @@ def generate_bounce_trials(
     indices_velocity_y_magnitude = pyutils.repeat_sequence(
         np.array(list(range(num_y_velocities)) * num_pos_endpoints),
         num_trials_bounce,
-    )
+    ).astype(int)
 
     # Keep track of velocities
     dict_meta_bounce["indices_velocity_y_magnitude_counts"] = np.unique(
@@ -1062,7 +1081,13 @@ def print_task_summary(meta, use_logger=True):
         out_func(f"    {key:<{max_key_len + 2}}{val}")
 
 
-def print_type_stats(trials, trial_type, duration, use_logger=True, return_str=False):
+def print_type_stats(
+        trials,
+        trial_type,
+        duration,
+        use_logger=True,
+        return_str=False,
+):
     if use_logger:
         out_funcs = [logger.info, logger.debug]
     else:
@@ -1117,7 +1142,6 @@ def print_type_stats(trials, trial_type, duration, use_logger=True, return_str=F
                     Counter(df_idx["idx_y_position"]),
                 )
             ]
-        # import ipdb; ipdb.set_trace()
 
     max_desc_len = max([len(desc) for (desc, _) in trial_type_stats])
     for (description, value) in trial_type_stats:
@@ -1358,6 +1382,53 @@ def plot_params(
             return_path=True,
         )
 
+def generate_data_df(
+    row_data,
+    dict_dataset_metadata,
+    samples,
+):
+    df_trial_metadata = pd.DataFrame(row_data)
+    
+    # Change the column to ints
+    for col in ["idx_time", "idx_position", "idx_velocity_y", ]:
+       df_trial_metadata[col] = (
+           pd.to_numeric(df_trial_metadata[col], errors="coerce")
+           .fillna(-1)
+           .astype(int)
+       )    
+
+    # Add in the last color entered
+    df_trial_metadata["last_visible_color"] = color_entered = 1 + np.argmax(
+        taskutils.last_visible_color(
+            samples[:, :, :5],
+            dict_dataset_metadata["ball_radius"],
+            dict_dataset_metadata["mask_start"],
+            dict_dataset_metadata["mask_end"],
+        ),
+        axis=1,
+    )
+    color_next = (color_entered % 3) + 1
+    color_after_next = (color_next % 3) + 1
+    
+    # Add it to the df
+    df_trial_metadata.loc[:, "color_entered"] = color_entered
+    df_trial_metadata.loc[:, "color_next"] = color_next
+    df_trial_metadata.loc[:, "color_after_next"] = color_after_next
+
+    # Add a new column called final_color_response
+    df_trial_metadata.loc[:, "correct_response"] = (
+        df_trial_metadata.loc[:, "Final Color"]
+        .map(default_color_to_idx_dict)
+        .values
+    )
+
+    # Rename the column 'idx' to 'idx_trial'
+    df_trial_metadata.rename(columns={'idx': 'idx_trial'}, inplace=True)
+    # Rename it
+    df_trial_metadata.index.name = 'Video ID'
+
+    return df_trial_metadata
+
 def generate_video_dataset(
     human_video_parameters,
     task_parameters,    
@@ -1426,7 +1497,7 @@ def generate_video_dataset(
         # Update the metadata for the trial
         meta_trial.update(
             {
-                "Final Color": colors[np.argmax(target[-1, 2:])],
+                "Final Color": default_ball_colors[np.argmax(target[-1, 2:])],
                 "Final X Position": sample[-1, 0],
                 "Final Y Position": sample[-1, 1],
                 "Final X Velocity": -velocity[0],
@@ -1438,7 +1509,7 @@ def generate_video_dataset(
         )
         list_data.append(meta_trial)
 
-    df_data = pd.DataFrame(list_data)
+    df_data = generate_data_df(list_data, dict_metadata, samples)
 
     # effective statistics
     timesteps = np.array([target.shape[0] for target in list_targets])
@@ -1456,8 +1527,8 @@ def generate_video_dataset(
     df_data["Color Change Random"] = change_sums[:, -1].astype(int)
 
     # Overall condition descriptors
-    hzs = df_data["PCCNVC"].unique()
-    conts = df_data["PCCOVC"].unique()    
+    hzs = np.sort(df_data["PCCNVC"].unique())
+    conts = np.sort(df_data["PCCOVC"].unique())
     df_data["Hazard Rate"] = df_data["PCCNVC"].apply(
         lambda hz: (
             "Low" if np.isclose(hz, hzs[0]) else
@@ -1762,7 +1833,6 @@ if __name__ == "__main__":
         2 * [np.zeros_like(color_changes[0])] + color_changes[:-1]
     ).transpose(1, 0)
     columns = ["x", "y", "r", "g", "b"]
-    colors = ["red", "green", "blue"]
 
     row_list = []
     last_block_num = None
@@ -1796,7 +1866,7 @@ if __name__ == "__main__":
         color_change = color_change[max_length - length :]
 
         # Grab the final color
-        target_color = colors[np.argmax(target[-1, 2:])]
+        target_color = default_ball_colors[np.argmax(target[-1, 2:])]
         timestamps = np.arange(length) * args.duration
 
         # Create the df for the targets and color changes

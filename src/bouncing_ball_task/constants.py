@@ -25,3 +25,26 @@ CONSTANT_COLOR = (
     (255, 0, 0),  # R
     (255, 0, 0),  # R
 )
+
+# Experiment constants
+default_trial_types = (
+    "catch",
+    "straight",
+    "bounce",
+)
+
+default_ball_colors = (
+    "red",
+    "green",
+    "blue",
+)
+
+default_idx_to_color_dict = {
+    idx + 1 : color
+    for idx, color in enumerate(default_ball_colors)
+}
+
+default_color_to_idx_dict = {
+    color : idx + 1
+    for idx, color in enumerate(default_ball_colors)
+}

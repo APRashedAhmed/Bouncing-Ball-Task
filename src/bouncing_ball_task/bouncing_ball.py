@@ -62,9 +62,6 @@ class BouncingBallTask:
         probability_color_change_on_velocity_change: Union[
             float, Callable[[int], np.ndarray]
         ] = 1.0,
-        # probability_velocity_change: float = 0.001,
-        # probability_color_change_no_velocity_change: float = 0.01,
-        # probability_color_change_on_velocity_change: float = 1.0,
         initial_position: Optional[Iterable[float]] = None,
         same_xy_velocity: bool = False,
         batch_size: int = 2,
@@ -107,10 +104,11 @@ class BouncingBallTask:
         pccovc_upper: Optional[float] = None,
         num_pccnvc: int = None,
         num_pccovc: int = None,
-        color_mask_mode: str = "fade",
+        color_mask_mode: str = "inner",
         initial_timestep_is_changepoint: bool = True,
         color_change_bounce_delay: int = 0,
         color_change_random_delay: int = 0,
+        transitioning_color_changes: bool = False,
         samples=None,
         targets=None,
         *args,
@@ -141,6 +139,7 @@ class BouncingBallTask:
 
         self.batch_size = batch_size
         self.batch_first = batch_first
+        self.transitioning_color_changes = transitioning_color_changes
 
         self.velocity_x_lower_multiplier = velocity_x_lower_multiplier
         self.velocity_x_upper_multiplier = velocity_x_upper_multiplier
@@ -1329,7 +1328,7 @@ class BouncingBallTask:
 
             # Vector of sequences without a velocity change of either kind
             no_velocity_changes = np.logical_not(velocity_changes)
-
+            
             # Compute the combined indices where the color will change according
             # to whether the velocity changed or not
             color_changes_combined = np.logical_and(
@@ -1345,15 +1344,36 @@ class BouncingBallTask:
                 self.color_change_target_indices[t], :, [0, 1]
             ] = color_changes_combined.T
 
-            # Probabilistically sample each sequence for whether the color should
-            # change at this timestep
+            # Find indices where the ball is gray-transitioning
+            transitioning_mask = np.clip(
+                np.minimum(
+                    position[:, 0] + self.ball_radius,
+                    self.mask_end,
+                ) -
+                np.maximum(
+                    position[:, 0] - self.ball_radius,
+                    self.mask_start,
+                ),
+                0,
+                None,
+            ) > 0
+
+            # Impose color changes cannot happen when transitioning into and out
+            # of the grayzone
+            color_change_array[t, :, 1] = np.logical_and(
+                color_change_array[t, :, 1],
+                ~transitioning_mask,
+            )
+
+            # Select indices for where color will change
             self.color_change_indices = color_changes = np.logical_or(
                 color_change_array[t].any(axis=-1),
                 self.forced_color_changes_array[t],
             )
-
+            
             # Set chance for random (no vel change) color changes to be 0 for
             # sequences where the color changed for min_t_color_change time steps
+            # or that are transitioning into or out of the grayzone
             rand_for_color[
                 t + 1 : t + self.min_t_color_change + 1, color_changes, 1
             ] = 1.0
