@@ -1424,6 +1424,10 @@ def generate_data_df(
 
     # Rename the column 'idx' to 'idx_trial'
     df_trial_metadata.rename(columns={'idx': 'idx_trial'}, inplace=True)
+    df_trial_metadata.loc[:, "trial"] = df_trial_metadata["trial"].apply(
+        lambda s: s.title()
+    )
+    
     # Rename it
     df_trial_metadata.index.name = 'Video ID'
 
