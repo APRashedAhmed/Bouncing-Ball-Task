@@ -46,6 +46,11 @@ class BouncingBallTask:
         "inner",  # Applies the mask when the inner circle edge touches the grayzone
         "fade",  # Fades the color of the grayzone as a function of diameter inside the grayzone
     }
+    valid_transitioning_change_modes = { # Behavior for transitions into the grayzone
+        "all", # Random changes are fully allowed as the ball transitions
+        "half", # Transition changes only allowed if >half the ball is visible
+        None, # Transitions changes entirely not allowed
+    }
 
     def __init__(
         self,
@@ -108,7 +113,7 @@ class BouncingBallTask:
         initial_timestep_is_changepoint: bool = True,
         color_change_bounce_delay: int = 0,
         color_change_random_delay: int = 0,
-        transitioning_color_changes: bool = False,
+        transitioning_change_mode: Optional[str] = None,
         samples=None,
         targets=None,
         *args,
@@ -139,7 +144,7 @@ class BouncingBallTask:
 
         self.batch_size = batch_size
         self.batch_first = batch_first
-        self.transitioning_color_changes = transitioning_color_changes
+        self.transitioning_change_mode = transitioning_change_mode
 
         self.velocity_x_lower_multiplier = velocity_x_lower_multiplier
         self.velocity_x_upper_multiplier = velocity_x_upper_multiplier
@@ -373,11 +378,6 @@ class BouncingBallTask:
             np.ones((self.batch_size, 2)) * self.initial_timestep_is_changepoint
         )
 
-        # if samples is not None and targets is not None:
-        #     self.sequence_mode = "preset"
-        #     self.sequence = list(zip(targets, samples))
-        #     self.sequence_length = len(self.sequence)
-
         # Run through the sequence once for specific modes upon initialization
         if self.sequence_mode in {
             "static",
@@ -454,6 +454,28 @@ class BouncingBallTask:
                 f"Invalid return_change_mode: {mode}. Must be one of {self.valid_return_change_modes}."
             )
         self._return_change_mode = mode
+
+    @property
+    def transitioning_change_mode(self) -> str:
+        return self._transitioning_change_mode
+
+    @return_change_mode.setter
+    def transitioning_change_mode(self, mode: Optional[str]):
+        logger.debug("Running transitioning_change_mode setter")
+        if mode is not None:
+            mode = mode.lower()  # Convert input to lowercase
+        if mode not in self.valid_transitioning_change_modes:
+            raise ValueError(
+                f"Invalid transitioning_change_mode: {mode}. Must be one of "
+                f"{self.valid_transitioning_change_modes}."
+            )
+        self._transitioning_change_mode = mode
+        if mode == "all":
+            self.transition_value = np.Inf
+        elif mode == "half":
+            self.transition_value = self.ball_radius
+        elif mode == None:
+            self.transition_value = 0
 
     @property
     def color_mask_mode(self) -> str:
@@ -715,12 +737,6 @@ class BouncingBallTask:
 
         elif self.return_change_mode == "any":
             return [np.logical_or(any_velocity_change, any_color_change)]
-
-        # elif self.return_change_mode == "feature":
-        #     return [
-        #         np.expand_dims(velocity_change, 1),
-        #         np.expand_dims(color_change, 1),
-        #     ]
 
     @property
     def sample_mode(self) -> str:
@@ -1180,10 +1196,6 @@ class BouncingBallTask:
             velocity_change,
             color_change,
         )
-        # if self.sequence_mode in {
-        #     "static",
-        #     "reverse",
-        # }:
         self.sequence.append((sample_out, target_out))
         return sample_out, target_out
 
@@ -1276,7 +1288,13 @@ class BouncingBallTask:
         )
 
         # Send out the initial conditions
-        yield position.copy(), velocity.copy(), color, self.initial_changes, self.initial_changes
+        yield (
+            position.copy(),
+            velocity.copy(),
+            color,
+            self.initial_changes,
+            self.initial_changes,
+        )
 
         for t in range(1, self.sequence_length):
             # Check for sequences where the position is OOB
@@ -1345,7 +1363,7 @@ class BouncingBallTask:
             ] = color_changes_combined.T
 
             # Find indices where the ball is gray-transitioning
-            transitioning_mask = np.clip(
+            transitioning_overlap = np.clip(
                 np.minimum(
                     position[:, 0] + self.ball_radius,
                     self.mask_end,
@@ -1356,7 +1374,11 @@ class BouncingBallTask:
                 ),
                 0,
                 None,
-            ) > 0
+            )
+            transitioning_mask = np.logical_and(
+                transitioning_overlap > self.transition_value,
+                transitioning_overlap < self.ball_radius * 2,
+            )
 
             # Impose color changes cannot happen when transitioning into and out
             # of the grayzone
@@ -1384,9 +1406,13 @@ class BouncingBallTask:
             # Step the position forward in time
             position += velocity * self.dt
 
-            yield position.copy(), velocity.copy(), color, velocity_changes_combined, color_change_array[
-                t
-            ]
+            yield (
+                position.copy(),
+                velocity.copy(),
+                color,
+                velocity_changes_combined,
+                color_change_array[t],
+            )
 
     def __iter__(self) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """Iterate over the bouncing ball sequences based on the sequence mode.
