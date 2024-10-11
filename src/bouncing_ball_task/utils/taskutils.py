@@ -9,7 +9,14 @@ from loguru import logger
 from bouncing_ball_task import index
 
 
-def last_visible_color(samples, ball_radius, mask_start, mask_end, tol=1):
+def last_visible_color(
+        samples,
+        ball_radius,
+        mask_start,
+        mask_end,
+        time_step_mode="mid",
+        tol=1,
+):
     """Determine the last visible RGB color of a ball before it fully enters a
     masked region in a series of trajectories represented by a 3D array.
 
@@ -53,10 +60,21 @@ def last_visible_color(samples, ball_radius, mask_start, mask_end, tol=1):
     # Create a boolean tensor indicating whether the timestep is within the
     # middle gray region or not
     x_coords = samples[:, :, 0]  # Extract the x-coordinates
-    out_mask = ~(
-        (x_coords >= (mask_start + ball_radius - tol))
-        & (x_coords <= (mask_end - ball_radius + tol))
-    )
+    if time_step_mode.lower() == "mid":
+        out_mask = ~(
+            (x_coords >= (mask_start - tol))
+            & (x_coords <= (mask_end + tol))
+        )
+    elif time_step_mode.lower() == "inner":
+        out_mask = ~(
+            (x_coords >= (mask_start + ball_radius - tol))
+            & (x_coords <= (mask_end - ball_radius + tol))
+        )
+    elif time_step_mode.lower() == "outer":
+        out_mask = ~(
+            (x_coords >= (mask_start - ball_radius - tol))
+            & (x_coords <= (mask_end + ball_radius + tol))
+        )
 
     # Reverse the boolean tensor along the timesteps direction
     out_mask_reversed = np.flip(out_mask, axis=1)
