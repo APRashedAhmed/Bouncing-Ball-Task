@@ -372,11 +372,11 @@ def generate_video_parameters(
     # Normal trials
     # x position Grayzone linspace
     x_grayzone_linspace = meta["x_grayzone_linspace"] = np.linspace(
-        mask_start + border_tolerance_inner * ball_radius,
-        mask_end - border_tolerance_inner * ball_radius,
-        num_pos_endpoints + 2,
+        mask_start + (border_tolerance_inner + 1) * ball_radius,
+        mask_end - (border_tolerance_inner + 1) * ball_radius,
+        num_pos_endpoints,
         endpoint=True,
-    )[1:-1]
+    )
 
     # Final x position linspaces that correspond to approaching from each side
     x_grayzone_linspace_reversed = x_grayzone_linspace[::-1]
@@ -564,8 +564,11 @@ def generate_straight_trials(
     dict_meta_straight = {"num_trials": num_trials_straight}
 
     multipliers = np.arange(1, num_pos_endpoints + 1)
-    position_y_diff = final_velocity_y_magnitude_linspace * dt * diff    
+    time_x_diff = diff / (final_velocity_x_magnitude * dt)
+    position_y_diff = final_velocity_y_magnitude_linspace * time_x_diff * dt
 
+    import ipdb; ipdb.set_trace()
+    
     indices_time_in_grayzone_straight = pyutils.repeat_sequence(
         np.arange(num_pos_endpoints),
         num_trials_straight,
@@ -602,22 +605,18 @@ def generate_straight_trials(
     )
 
     # Straight y positions
-    y_distance_traversed_straight = (
+    y_distance_traversed_straight = dict_meta_straight["y_distance_traversed_straight"] = (
         position_y_diff[:, np.newaxis] * multipliers
     )
 
-    # This is shape [2 x num_vel x num_pos_endpoints x 2*num_pos_endpoints]
-    # [top/bottom, each vel, num x positions, num y pos per x pos]
-    final_y_positions_straight = dict_meta_straight[
-        "final_y_positions"
-    ] = np.stack(
+    final_y_positions_straight_left = np.stack(
         [
             # Top
             np.linspace(
                 np.ones_like(y_distance_traversed_straight)
                 * 2
                 * ball_radius,
-                size_y - y_distance_traversed_straight - 2 * ball_radius,
+                size_y - y_distance_traversed_straight - 4 * ball_radius,
                 2 * num_pos_endpoints,
                 endpoint=True,
                 axis=-1,
@@ -625,7 +624,7 @@ def generate_straight_trials(
             # Bottom
             np.linspace(
                 size_y - 2 * ball_radius,
-                y_distance_traversed_straight + 2 * ball_radius,
+                y_distance_traversed_straight + 4 * ball_radius,
                 2 * num_pos_endpoints,
                 endpoint=True,
                 axis=-1,
@@ -633,23 +632,35 @@ def generate_straight_trials(
         ]
     )
 
-    # Final y position linspaces
-    y_grayzone_positions = pyutils.repeat_sequence(
-        np.linspace(
-            border_tolerance_outer * ball_radius,
-            size_y - border_tolerance_outer * ball_radius,
-            2 * num_pos_endpoints,
-            endpoint=True,
-        ),
-        num_trials_straight,
+    # This is shape [2 x 2 x num_vel x num_pos_endpoints x 2*num_pos_endpoints]
+    # [left/right, top/bottom, each vel, num x positions, num y pos per x pos]
+    final_y_positions_straight = dict_meta_straight[
+        "final_y_positions"
+    ] = np.stack(
+        [
+            final_y_positions_straight_left,
+            final_y_positions_straight_left[:, :, ::-1],
+        ]
     )
+    # import ipdb; ipdb.set_trace()
+    
+    # # Final y position linspaces
+    # y_grayzone_positions = pyutils.repeat_sequence(
+    #     np.linspace(
+    #         border_tolerance_outer * ball_radius,
+    #         size_y - border_tolerance_outer * ball_radius,
+    #         2 * num_pos_endpoints,
+    #         endpoint=True,
+    #     ),
+    #     num_trials_straight,
+    # )
 
-    # keep track of grayzone positions
-    dict_meta_straight["y_grayzone_position_counts"] = np.unique(
-        y_grayzone_positions,
-        return_counts=True,
-        axis=0,
-    )
+    # # keep track of grayzone positions
+    # dict_meta_straight["y_grayzone_position_counts"] = np.unique(
+    #     y_grayzone_positions,
+    #     return_counts=True,
+    #     axis=0,
+    # )
 
     # Precompute colors
     final_color_straight = pyutils.repeat_sequence(
@@ -729,6 +740,7 @@ def generate_straight_trials(
         ].item()
         final_position_y = np.random.choice(
             final_y_positions_straight[
+                side_left_right,
                 side_top_bottom,
                 idx_velocity_y,
                 idx_time,
@@ -1385,7 +1397,7 @@ def plot_params(
 def generate_data_df(
     row_data,
     dict_dataset_metadata,
-    samples,
+    targets,
 ):
     df_trial_metadata = pd.DataFrame(row_data)
     
@@ -1400,7 +1412,7 @@ def generate_data_df(
     # Add in the last color entered
     df_trial_metadata["last_visible_color"] = color_entered = 1 + np.argmax(
         taskutils.last_visible_color(
-            samples[:, :, :5],
+            targets[:, :, :5],
             dict_dataset_metadata["ball_radius"],
             dict_dataset_metadata["mask_start"],
             dict_dataset_metadata["mask_end"],
@@ -1513,7 +1525,7 @@ def generate_video_dataset(
         )
         list_data.append(meta_trial)
 
-    df_data = generate_data_df(list_data, dict_metadata, samples)
+    df_data = generate_data_df(list_data, dict_metadata, targets)
 
     # effective statistics
     timesteps = np.array([target.shape[0] for target in list_targets])
