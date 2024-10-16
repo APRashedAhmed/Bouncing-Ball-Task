@@ -300,7 +300,7 @@ def generate_video_parameters(
     video_length_max_ms = video_length_max_f * duration
 
     # Containers
-    trials_straight, trials_bounce = [], []
+    trials_catch, trials_straight, trials_bounce = [], [], []
     meta = {
         "num_trials": total_videos,
         "length_trials_ms": length_trials_total_ms,
@@ -567,7 +567,7 @@ def generate_straight_trials(
     time_x_diff = diff / (final_velocity_x_magnitude * dt)
     position_y_diff = final_velocity_y_magnitude_linspace * time_x_diff * dt
 
-    import ipdb; ipdb.set_trace()
+    # import ipdb; ipdb.set_trace()
     
     indices_time_in_grayzone_straight = pyutils.repeat_sequence(
         np.arange(num_pos_endpoints),
@@ -642,25 +642,6 @@ def generate_straight_trials(
             final_y_positions_straight_left[:, :, ::-1],
         ]
     )
-    # import ipdb; ipdb.set_trace()
-    
-    # # Final y position linspaces
-    # y_grayzone_positions = pyutils.repeat_sequence(
-    #     np.linspace(
-    #         border_tolerance_outer * ball_radius,
-    #         size_y - border_tolerance_outer * ball_radius,
-    #         2 * num_pos_endpoints,
-    #         endpoint=True,
-    #     ),
-    #     num_trials_straight,
-    # )
-
-    # # keep track of grayzone positions
-    # dict_meta_straight["y_grayzone_position_counts"] = np.unique(
-    #     y_grayzone_positions,
-    #     return_counts=True,
-    #     axis=0,
-    # )
 
     # Precompute colors
     final_color_straight = pyutils.repeat_sequence(
@@ -1397,7 +1378,7 @@ def plot_params(
 def generate_data_df(
     row_data,
     dict_dataset_metadata,
-    targets,
+    targets=None,
 ):
     df_trial_metadata = pd.DataFrame(row_data)
     
@@ -1409,23 +1390,24 @@ def generate_data_df(
            .astype(int)
        )    
 
-    # Add in the last color entered
-    df_trial_metadata["last_visible_color"] = color_entered = 1 + np.argmax(
-        taskutils.last_visible_color(
-            targets[:, :, :5],
-            dict_dataset_metadata["ball_radius"],
-            dict_dataset_metadata["mask_start"],
-            dict_dataset_metadata["mask_end"],
-        ),
-        axis=1,
-    )
-    color_next = (color_entered % 3) + 1
-    color_after_next = (color_next % 3) + 1
-    
-    # Add it to the df
-    df_trial_metadata.loc[:, "color_entered"] = color_entered
-    df_trial_metadata.loc[:, "color_next"] = color_next
-    df_trial_metadata.loc[:, "color_after_next"] = color_after_next
+    if targets is not None:
+        # Add in the last color entered
+        df_trial_metadata["last_visible_color"] = color_entered = 1 + np.argmax(
+            taskutils.last_visible_color(
+                targets[:, :, :5],
+                dict_dataset_metadata["ball_radius"],
+                dict_dataset_metadata["mask_start"],
+                dict_dataset_metadata["mask_end"],
+            ),
+            axis=1,
+        )
+        color_next = (color_entered % 3) + 1
+        color_after_next = (color_next % 3) + 1
+
+        # Add it to the df
+        df_trial_metadata.loc[:, "color_entered"] = color_entered
+        df_trial_metadata.loc[:, "color_next"] = color_next
+        df_trial_metadata.loc[:, "color_after_next"] = color_after_next
 
     # Add a new column called final_color_response
     df_trial_metadata.loc[:, "correct_response"] = (
