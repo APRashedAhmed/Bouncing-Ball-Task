@@ -1379,11 +1379,12 @@ def generate_data_df(
     row_data,
     dict_dataset_metadata,
     targets=None,
+    num_blocks=None,
 ):
     df_trial_metadata = pd.DataFrame(row_data)
     
     # Change the column to ints
-    for col in ["idx_time", "idx_position", "idx_velocity_y", ]:
+    for col in ["idx_time", "idx_position", "idx_velocity_y"]:
        df_trial_metadata[col] = (
            pd.to_numeric(df_trial_metadata[col], errors="coerce")
            .fillna(-1)
@@ -1425,6 +1426,31 @@ def generate_data_df(
     # Rename it
     df_trial_metadata.index.name = 'Video ID'
 
+    if num_blocks is not None:
+        idx_trials = list(df_trial_metadata.index)
+        random.shuffle(idx_trials)
+        num_rows = len(df_trial_metadata)
+
+        blocks = [[] for _ in range(num_blocks)]
+        # Distribute elements across the lists in a round-robin manner
+        for item, block in zip(idx_trials, itertools.cycle(blocks)):
+            block.append(item)
+        random.shuffle(blocks)
+        
+        for block_num, block in enumerate(blocks):
+            random.shuffle(block)
+            for video_num, video_idx in enumerate(block):
+                df_trial_metadata.loc[video_idx, "Block"] = block_num + 1
+                df_trial_metadata.loc[video_idx, "Block Video"] = video_num + 1
+                
+        # Change the column to ints
+        for col in ["Block", "Block Video"]:
+           df_trial_metadata[col] = (
+               pd.to_numeric(df_trial_metadata[col], errors="coerce")
+               .fillna(-1)
+               .astype(int)
+           )
+    
     return df_trial_metadata
 
 def generate_video_dataset(
@@ -1432,6 +1458,7 @@ def generate_video_dataset(
     task_parameters,    
     shuffle=True,
     validate=True,
+    num_blocks=None,
 ):
     *params, dict_metadata = generate_video_parameters(
         **human_video_parameters
@@ -1507,7 +1534,12 @@ def generate_video_dataset(
         )
         list_data.append(meta_trial)
 
-    df_data = generate_data_df(list_data, dict_metadata, targets)
+    df_data = generate_data_df(
+        list_data,
+        dict_metadata,
+        targets,
+        num_blocks=num_blocks,
+    )
 
     # effective statistics
     timesteps = np.array([target.shape[0] for target in list_targets])
