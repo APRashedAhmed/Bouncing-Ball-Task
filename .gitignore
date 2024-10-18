@@ -182,6 +182,7 @@ Desktop.ini
 logs/*
 .env
 .autoenv
+data/*
 
 # But keep all the .gitkeep files
 !*.gitkeep

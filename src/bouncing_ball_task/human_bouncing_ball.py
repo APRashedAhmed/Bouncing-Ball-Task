@@ -9,12 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import torch
 from loguru import logger
-from tqdm import tqdm
 
 from bouncing_ball_task import index
 from bouncing_ball_task.constants import (
@@ -24,7 +21,7 @@ from bouncing_ball_task.constants import (
     default_color_to_idx_dict,
 )
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
-from bouncing_ball_task.utils import gif, logutils, pyutils, taskutils
+from bouncing_ball_task.utils import logutils, pyutils, taskutils
 
 
 def generate_video_parameters(
@@ -57,6 +54,7 @@ def generate_video_parameters(
     exp_scale: float = 1.0,  # seconds
     print_stats: bool = True,
     use_logger: bool = True,
+    seed: Optional[int] = None,
 ):
     """Generates parameters for video simulations of a bouncing ball in a
     bounded frame.
@@ -150,11 +148,14 @@ def generate_video_parameters(
         Scale factor applied to exponential distributions for time-related
         parameters.
 
-    print_stats : bool, default=True,
+    print_stats : bool, default=True
     	Print stats for each trial type.
 
     use_logger : bool, default=True,
     	Use the logger methods or print function to display stats
+
+    seed : Optional[int], default=None
+    	Random seed to use for generating videos
 
     Returns
     -------
@@ -162,6 +163,12 @@ def generate_video_parameters(
         A tuple containing a list of video parameters and a dictionary
         containing metadata about the dataset.
     """
+    # Set the seed
+    if seed is None:
+        seed = random.randint(0, 2**32 - 1)
+    random.seed(seed)
+    np.random.seed(seed)
+    
     # Convenience
     size_x, size_y = size_frame
     exp_scale_ms = exp_scale * 1000
@@ -321,6 +328,7 @@ def generate_video_parameters(
         "pvc": pvc,
         "num_y_velocities": num_y_velocities,
         "bounce_offset": bounce_offset,
+        "seed": seed,
     }    
 
     if print_stats:
@@ -1153,7 +1161,7 @@ def print_type_stats(
         return list_messages
 
 
-def generate_block_parameters(
+def generate_blocks_from_parameters(
     params,
     num_blocks,
     shuffle_block=True,
@@ -1375,6 +1383,48 @@ def plot_params(
             return_path=True,
         )
 
+
+def generate_blocks_from_data_df(
+    df_trial_metadata,
+    dict_dataset_metadata,
+    num_blocks,
+):
+    idx_trials = list(df_trial_metadata.index)
+    random.shuffle(idx_trials)
+    num_rows = len(df_trial_metadata)
+    meta_blocks = {}
+
+    blocks = [[] for _ in range(num_blocks)]
+    # Distribute elements across the lists in a round-robin manner
+    for item, block in zip(idx_trials, itertools.cycle(blocks)):
+        block.append(item)
+    random.shuffle(blocks)
+
+    for block_num, block in enumerate(blocks):
+        random.shuffle(block)
+        for video_num, video_idx in enumerate(block):
+            df_trial_metadata.loc[video_idx, "Block"] = block_num + 1
+            df_trial_metadata.loc[video_idx, "Block Video Index"] = video_num + 1
+
+        df_block = df_trial_metadata[df_trial_metadata["Block"] == block_num + 1]
+
+        meta_blocks[block_num + 1] = {
+            "num_trials": len(block),
+            "length_trials_ms": df_block["length"].sum() * dict_dataset_metadata["duration"],
+        }
+
+    # Change the column to ints
+    for col in ["Block", "Block Video Index"]:
+       df_trial_metadata[col] = (
+           pd.to_numeric(df_trial_metadata[col], errors="coerce")
+           .fillna(-1)
+           .astype(int)
+       )
+
+    dict_dataset_metadata["blocks"] = meta_blocks
+
+    return df_trial_metadata, dict_dataset_metadata
+
 def generate_data_df(
     row_data,
     dict_dataset_metadata,
@@ -1427,31 +1477,13 @@ def generate_data_df(
     df_trial_metadata.index.name = 'Video ID'
 
     if num_blocks is not None:
-        idx_trials = list(df_trial_metadata.index)
-        random.shuffle(idx_trials)
-        num_rows = len(df_trial_metadata)
-
-        blocks = [[] for _ in range(num_blocks)]
-        # Distribute elements across the lists in a round-robin manner
-        for item, block in zip(idx_trials, itertools.cycle(blocks)):
-            block.append(item)
-        random.shuffle(blocks)
+        df_trial_metadata, dict_dataset_metadata = generate_blocks_from_data_df(
+            df_trial_metadata,
+            dict_dataset_metadata,
+            num_blocks,
+        )
         
-        for block_num, block in enumerate(blocks):
-            random.shuffle(block)
-            for video_num, video_idx in enumerate(block):
-                df_trial_metadata.loc[video_idx, "Block"] = block_num + 1
-                df_trial_metadata.loc[video_idx, "Block Video"] = video_num + 1
-                
-        # Change the column to ints
-        for col in ["Block", "Block Video"]:
-           df_trial_metadata[col] = (
-               pd.to_numeric(df_trial_metadata[col], errors="coerce")
-               .fillna(-1)
-               .astype(int)
-           )
-    
-    return df_trial_metadata
+    return df_trial_metadata, dict_dataset_metadata
 
 def generate_video_dataset(
     human_video_parameters,
@@ -1475,6 +1507,9 @@ def generate_video_dataset(
         list(param) for param in zip(*params_flattened)
     )
 
+    # Grab relevant variables
+    max_length = dict_metadata["video_length_max_f"]
+
     task = BouncingBallTask(
         batch_size=len(positions),
         probability_velocity_change=pvcs,
@@ -1483,6 +1518,7 @@ def generate_video_dataset(
         initial_position=positions,
         initial_velocity=velocities,
         initial_color=colors,
+        sequence_length=max_length,
         **task_parameters,
     )
 
@@ -1499,8 +1535,6 @@ def generate_video_dataset(
 
     # Update metadata
     dict_metadata["min_t_color_change"] = task.min_t_color_change
-    # Grab relevant variables
-    max_length = dict_metadata["video_length_max_f"]
 
     list_samples, list_targets, list_data = [], [], []
 
@@ -1534,7 +1568,7 @@ def generate_video_dataset(
         )
         list_data.append(meta_trial)
 
-    df_data = generate_data_df(
+    df_data, dict_metadata = generate_data_df(
         list_data,
         dict_metadata,
         targets,
@@ -1555,24 +1589,31 @@ def generate_video_dataset(
     df_data["Random Bounces"] = change_sums[:, -3].astype(int)
     df_data["Color Change Bounce"] = change_sums[:, -2].astype(int)
     df_data["Color Change Random"] = change_sums[:, -1].astype(int)
+    # Add observable changes
 
     # Overall condition descriptors
     hzs = np.sort(df_data["PCCNVC"].unique())
     conts = np.sort(df_data["PCCOVC"].unique())
-    df_data["Hazard Rate"] = df_data["PCCNVC"].apply(
-        lambda hz: (
-            "Low" if np.isclose(hz, hzs[0]) else
-            "High" if np.isclose(hz, hzs[1]) else
-            "Unknown"
-        )
+    df_data["Hazard Rate"] = pd.Categorical(
+        df_data["PCCNVC"].apply(
+            lambda hz: (
+                "Low" if np.isclose(hz, hzs[0]) else
+                "High" if np.isclose(hz, hzs[1]) else
+                "Unknown"
+            )
+        ),
+        categories=["Low", "High"],
     )
-    df_data["Contingency"] = df_data["PCCOVC"].apply(
-        lambda cont: (
-            "Low" if np.isclose(cont, conts[0]) else
-            "Medium" if np.isclose(cont, conts[1]) else
-            "High" if np.isclose(cont, conts[2]) else
-            "Unknown"
-        )
+    df_data["Contingency"] = pd.Categorical(
+        df_data["PCCOVC"].apply(
+            lambda cont: (
+                "Low" if np.isclose(cont, conts[0]) else
+                "Medium" if np.isclose(cont, conts[1]) else
+                "High" if np.isclose(cont, conts[2]) else
+                "Unknown"
+            )
+        ),
+        categories=["Low", "Medium", "High"],
     )
 
     return task, list_samples, list_targets, df_data, dict_metadata
@@ -1681,8 +1722,8 @@ if __name__ == "__main__":
         type=float,
         default=0.5,
         help="Bounce straight split",
-    )
-
+    
+)
     parser.add_argument(
         "--sequence_length", type=int, default=None, help="Sequence length"
     )

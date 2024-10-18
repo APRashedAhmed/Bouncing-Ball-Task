@@ -55,6 +55,7 @@ def draw_frame(
     circle_border_thickness: int = 2,
 ):
     frame = np.zeros((*size_frame[::-1], 3), dtype=np.uint8)
+    # import ipdb; ipdb.set_trace()
     frame = cv2.circle(
         frame,
         tuple(np.round(position).astype(int).tolist()),

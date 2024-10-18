@@ -1,15 +1,66 @@
 """Functions for "basic python", not related to specific packages or goals."""
+import os
 import ast
 import inspect
 import shutil
 import tempfile
+import random
 from collections.abc import Iterable
 from functools import partial, wraps
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import Optional, List, Tuple, Union
 
 import numpy as np
 from loguru import logger
+
+def set_global_seed(seed_value=None):
+    """
+    Set a global random seed for reproducibility across various libraries.
+
+    This function sets the same random seed for Python's `random` module, 
+    NumPy (if installed), PyTorch (if installed), and TensorFlow (if installed).
+    It also sets the `PYTHONHASHSEED` environment variable to ensure
+    deterministic hashing in Python.
+
+    Parameters
+    ----------
+    seed_value : Optional[int]
+        The seed value to use for initializing the random number generators
+    """
+    # Generate a seed if none is passed
+    if seed_value is None:
+        seed_value = random.randint(0, 2**32 - 1)
+    
+    # Set seed for Python's random module
+    random.seed(seed_value)
+    
+    # Set seed for numpy if available
+    try:
+        import numpy as np
+        np.random.seed(seed_value)
+    except ImportError:
+        pass
+    
+    # Set seed for PyTorch if available
+    try:
+        import torch
+        torch.manual_seed(seed_value)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed_value)
+    except ImportError:
+        pass
+    
+    # Set seed for TensorFlow if available
+    try:
+        import tensorflow as tf
+        tf.random.set_seed(seed_value)
+    except ImportError:
+        pass
+    
+    # Set seed for OS-level randomness
+    os.environ['PYTHONHASHSEED'] = str(seed_value)
+
+    return seed_value
 
 
 def get_unique_filename(name: str, directory: Path) -> str:
@@ -533,3 +584,4 @@ def repeat_sequence_imbalanced(
         )
         value_counter[value] += 1
     return output
+

@@ -258,7 +258,7 @@ class BouncingBallTask:
 
         self.seed = seed
         if self.seed is not False:  # Skip seeding if its done elsewhere
-            np.random.seed(self.seed)  # Set the seed before all oprations
+            pyutils.set_global_seed(self.seed) # Set the seed before all operations
 
         self.return_change = return_change
 
@@ -1607,7 +1607,7 @@ class BouncingBallTask:
         sample_arrays = [
             gif.draw_frame(
                 (param[:2] * multiplier).tolist(),
-                param[2:].tolist(),
+                param[2:5].tolist(),
                 ball_radius,
                 mask_color.tolist(),
                 size_frame,
