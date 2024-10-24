@@ -142,6 +142,10 @@ class BouncingBallTask:
             np.arange(self.sequence_length)[:, None] + self.color_change_delay
         )
 
+        # Which timestep in the future should we return as the target
+        self.target_future_timestep = target_future_timestep
+        self.task_deque = deque()        
+
         self.batch_size = batch_size
         self.batch_first = batch_first
         self.transitioning_change_mode = transitioning_change_mode
@@ -194,7 +198,8 @@ class BouncingBallTask:
                 )
 
         # Use the provided batch_size to initialize attributes
-        self.resample_change_probabilities(batch_size)
+        if self.sequence_mode != "preset":
+            self.resample_change_probabilities(batch_size)
 
         self.mask_center = mask_center
         self.mask_fraction = mask_fraction
@@ -242,10 +247,6 @@ class BouncingBallTask:
 
         self.sample_mode = sample_mode
         self.target_mode = target_mode
-
-        # Which timestep in the future should we return as the target
-        self.target_future_timestep = target_future_timestep
-        self.task_deque = deque()
 
         # For generating arrays
         if self.sample_mode == "array" or self.target_mode == "array":
@@ -427,8 +428,11 @@ class BouncingBallTask:
         if self.sequence_mode == "preset":
             assert self.preset_samples is not None
             assert self.preset_targets is not None
-            self.sequence = list(zip(self.preset_targets, self.preset_samples))
-            self.sequence_length = len(self.sequence)
+            self.sequence = list(zip(
+                self.preset_samples.transpose(1, 0, 2),
+                self.preset_targets.transpose(1, 0, 2),
+            ))
+            self.sequence_length = len(self.sequence) + self.target_future_timestep
 
         # Reset all the relevant downstream parameters and run through the
         # sequence once for specific modes but dont run it when the obj is
