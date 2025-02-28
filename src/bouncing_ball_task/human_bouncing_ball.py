@@ -1485,6 +1485,49 @@ def generate_data_df(
         
     return df_trial_metadata, dict_dataset_metadata
 
+def add_effective_stats_to_df(
+        df_data,
+        timesteps,
+        change_sums,
+):
+    df_data["PCCNVC_effective"] = (
+        change_sums[:, -1] /
+        (timesteps - change_sums[:, -4] - change_sums[:, -3])
+    )
+    df_data["PCCOVC_effective"] = change_sums[:, -2] / change_sums[:, -4]
+    df_data["PVC_effective"] = change_sums[:, -3] / timesteps
+    df_data["Bounces"] = change_sums[:, -4].astype(int)
+    df_data["Random Bounces"] = change_sums[:, -3].astype(int)
+    df_data["Color Change Bounce"] = change_sums[:, -2].astype(int)
+    df_data["Color Change Random"] = change_sums[:, -1].astype(int)
+    # Add observable changes
+
+    # Overall condition descriptors
+    hzs = np.sort(df_data["PCCNVC"].unique())
+    conts = np.sort(df_data["PCCOVC"].unique())
+    df_data["Hazard Rate"] = pd.Categorical(
+        df_data["PCCNVC"].apply(
+            lambda hz: (
+                "Low" if np.isclose(hz, hzs[0]) else
+                "High" if np.isclose(hz, hzs[1]) else
+                "Unknown"
+            )
+        ),
+        categories=["Low", "High"],
+    )
+    df_data["Contingency"] = pd.Categorical(
+        df_data["PCCOVC"].apply(
+            lambda cont: (
+                "Low" if np.isclose(cont, conts[0]) else
+                "Medium" if np.isclose(cont, conts[1]) else
+                "High" if np.isclose(cont, conts[2]) else
+                "Unknown"
+            )
+        ),
+        categories=["Low", "Medium", "High"],
+    )
+    return df_data    
+
 def generate_video_dataset(
     human_video_parameters,
     task_parameters,    
