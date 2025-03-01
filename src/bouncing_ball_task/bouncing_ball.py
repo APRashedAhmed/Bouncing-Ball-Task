@@ -16,6 +16,7 @@ from bouncing_ball_task import index
 from bouncing_ball_task.constants import CONSTANT_COLOR, DEFAULT_COLORS
 from bouncing_ball_task.utils import gif, logutils, pyutils
 
+np.set_printoptions(precision=2, linewidth=150)
 
 class BouncingBallTask:
 
@@ -1162,21 +1163,20 @@ class BouncingBallTask:
         velocity_change,
         color_change,
     ):
-        if self.debug:
-            self.all_parameters.append(
-                {
-                    "time": t,
-                    "position": position,
-                    "velocity": velocity,
-                    "color_masked": masked_color,
-                    "color": color,
-                    "velocity change": velocity_change,
-                    "color_change": color_change,
-                }
-            )
-            # Increment the change counters
-            self.color_change_count += color_change.astype(int)
-            self.velocity_change_count += velocity_change.astype(int)
+        self.all_parameters.append(
+            {
+                "time": t,
+                "position": position,
+                "velocity": velocity,
+                "color_masked": masked_color,
+                "color": color,
+                "velocity change": velocity_change,
+                "color_change": color_change,
+            }
+        )
+        # Increment the change counters
+        self.color_change_count += color_change.astype(int)
+        self.velocity_change_count += velocity_change.astype(int)
 
     def output_transformation(self, sample_parameters, target_parameters):
         # (position, velocity, masked_color, color, velocity_change, color_change)
@@ -1472,7 +1472,7 @@ class BouncingBallTask:
 
         # Reverse it for that sequence mode
         if self.sequence_mode == "reverse":
-            ball_sequence = reversed(list(ball_sequence))
+            ball_sequence = self.reverse_ball_sequence(ball_sequence)
 
         # Iterate over the generated bouncing ball sequence
         for t, (
@@ -1494,7 +1494,8 @@ class BouncingBallTask:
             )
 
             # Store the current parameters for future reference
-            self.track_parameters(t, *parameters)
+            if self.debug:
+                self.track_parameters(t, *parameters)
 
             # If we have not reached the target timestep, continue iterating
             # until we do so before starting to yield (sample, target) pairs
@@ -1517,6 +1518,30 @@ class BouncingBallTask:
             self.task_deque[0], self.task_deque[-1]
         )
 
+    def reverse_ball_sequence(self, ball_sequence):
+        ball_sequence = list(reversed(list(ball_sequence)))
+
+        # Unpack the sequence (each is a tuple now)
+        pos, vel, col, vel_ch, col_ch = zip(*ball_sequence)
+
+        # For color, we want the first element repeated at the start and then
+        # all but the last element.
+        col_new = (col[0],) + col[:-1]
+
+        # Precompute a zeros array for the change dims.
+        zero_vel = np.zeros_like(vel_ch[-1])
+        zero_col = np.zeros_like(col_ch[-1])
+
+        # For the velocity and color change arrays, we want:
+        # - first element: last element from the original,
+        # - second element: zeros,
+        # - then all but the last two elements.
+        vel_ch_new = (vel_ch[-1], zero_vel) + vel_ch[:-2]
+        col_ch_new = (col_ch[-1], zero_col) + col_ch[:-2]
+
+        # Return a zipped iterator of the new tuples.
+        return zip(pos, vel, col_new, vel_ch_new, col_ch_new)        
+            
     @classmethod
     def target_to_sample(
         cls, target, mask_start, mask_end, mask_color, ball_radius
@@ -1977,6 +2002,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--initial_position",
         nargs="+",
+        action="append",
         type=float,
         help="Initial position of the object, as a float iterable",
     )
