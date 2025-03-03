@@ -96,7 +96,10 @@ class BouncingBallTask:
         return_change_mode: str = "any",
         sequence_mode: str = "static",
         reset_after_iter: bool = False,
-        min_t_color_change: int = 20,
+        min_t_color_change: int = 5,
+        min_t_velocity_change: int = 5,
+        warmup_t_no_rand_color_change: int = 3,
+        warmup_t_no_rand_velocity_change: int = 3,
         forced_velocity_bounce_x: Optional[list[int]] = None,
         forced_velocity_bounce_y: Optional[list[int]] = None,
         forced_velocity_resamples: Optional[list[int]] = None,
@@ -129,6 +132,9 @@ class BouncingBallTask:
         self.ball_diameter = 2 * self.ball_radius
         self.dt = dt
         self.min_t_color_change = min_t_color_change
+        self.min_t_velocity_change = min_t_velocity_change
+        self.warmup_t_no_rand_color_change = warmup_t_no_rand_color_change
+        self.warmup_t_no_rand_velocity_change = warmup_t_no_rand_velocity_change
         self._color_mask_mode = None  # Setter initialization
         self.color_mask_mode = color_mask_mode
         self.color_change_bounce_delay = color_change_bounce_delay
@@ -1274,12 +1280,20 @@ class BouncingBallTask:
         rand_for_velocity = np.random.uniform(
             size=(self.sequence_length, self.batch_size)
         )
-        rand_for_velocity_resample = self.sample_velocity(
-            self.sequence_length, self.batch_size
-        )
+
+        # Set initial steps to be 1.0
+        rand_for_velocity[:self.warmup_t_no_rand_velocity_change] = 1.0
+        
+        rand_vel_lookup = np.array([[1, -1], [-1, 1]])
+        rand_for_velocity_resample = rand_vel_lookup[
+            np.random.randint(
+                0, 2, size=(self.sequence_length, self.batch_size)
+            )
+        ]
         rand_for_color = np.random.uniform(
             size=(self.sequence_length, self.batch_size, 2)
         )
+        rand_for_color[:self.warmup_t_no_rand_color_change] = 1.0
 
         # Color change array to hold changes
         color_change_array = np.zeros(
@@ -1307,6 +1321,24 @@ class BouncingBallTask:
                 position < self.position_lower_bound,
             )
 
+            # Find indices where the ball is gray-transitioning
+            transitioning_overlap = np.clip(
+                np.minimum(
+                    position[:, 0] + self.ball_radius,
+                    self.mask_end,
+                ) -
+                np.maximum(
+                    position[:, 0] - self.ball_radius,
+                    self.mask_start,
+                ),
+                0,
+                None,
+            )
+            transitioning_mask = np.logical_and(
+                transitioning_overlap > self.transition_value,
+                transitioning_overlap < self.ball_radius * 2,
+            )            
+
             # Get all bounce indices including forced bounces
             indices_positions_with_bounce = np.logical_or(
                 positions_out_of_bounds,
@@ -1324,18 +1356,22 @@ class BouncingBallTask:
             # Which ones did not
             indices_velocity_no_bounce = np.logical_not(indices_velocity_bounce)
 
-            # Of those with no bounce, probabilistically resample velocity or
-            # force a resample if it is a forced resampling index
+            # Of those with no bounce, probabilistically resample velocity if
+            # the ball isn't transitioning into the grayzone, or force a
+            # resample if it is a forced resampling index
             indices_velocity_resamples = np.logical_and(
                 indices_velocity_no_bounce,
                 np.logical_or(
-                    rand_for_velocity[t] <= self.probability_velocity_change,
+                    np.logical_and(
+                        rand_for_velocity[t] <= self.probability_velocity_change,
+                        ~transitioning_mask,
+                    ),
                     self.forced_velocity_resamples_array[t],
                 ),
             )
 
             # Apply a velocity change to the indices that are resampled
-            velocity[indices_velocity_resamples] = rand_for_velocity_resample[
+            velocity[indices_velocity_resamples] *= rand_for_velocity_resample[
                 t, indices_velocity_resamples
             ]
 
@@ -1348,6 +1384,12 @@ class BouncingBallTask:
             # Compile all bounce and resampled velocity changes into one vector
             velocity_changes = velocity_changes_combined.any(axis=-1)
 
+            # Set chance for random vel changes to be 0 for sequences where the
+            # vel changed
+            rand_for_velocity[
+                t + 1 : t + self.min_t_velocity_change + 1, velocity_changes
+            ] = 1.0
+            
             # Vector of sequences without a velocity change of either kind
             no_velocity_changes = np.logical_not(velocity_changes)
             
@@ -1365,24 +1407,6 @@ class BouncingBallTask:
             color_change_array[
                 self.color_change_target_indices[t], :, [0, 1]
             ] = color_changes_combined.T
-
-            # Find indices where the ball is gray-transitioning
-            transitioning_overlap = np.clip(
-                np.minimum(
-                    position[:, 0] + self.ball_radius,
-                    self.mask_end,
-                ) -
-                np.maximum(
-                    position[:, 0] - self.ball_radius,
-                    self.mask_start,
-                ),
-                0,
-                None,
-            )
-            transitioning_mask = np.logical_and(
-                transitioning_overlap > self.transition_value,
-                transitioning_overlap < self.ball_radius * 2,
-            )
 
             # Impose color changes cannot happen when transitioning into and out
             # of the grayzone
@@ -1519,11 +1543,10 @@ class BouncingBallTask:
         )
 
     def reverse_ball_sequence(self, ball_sequence):
-        ball_sequence = list(reversed(list(ball_sequence)))
-
+        # ball_sequence = list()
         # Unpack the sequence (each is a tuple now)
-        pos, vel, col, vel_ch, col_ch = zip(*ball_sequence)
-
+        pos, vel, col, vel_ch, col_ch = zip(*reversed(list(ball_sequence)))
+        
         # For color, we want the first element repeated at the start and then
         # all but the last element.
         col_new = (col[0],) + col[:-1]

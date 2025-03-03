@@ -1,3 +1,4 @@
+import copy
 import argparse
 import copy
 import itertools
@@ -39,17 +40,17 @@ def generate_video_parameters(
     velocity_upper: float = 1 / 7.5,
     num_y_velocities: int = 2,
     p_catch_trials: float = 0.05,
-    pccnvc_lower: float = 0.01,
-    pccnvc_upper: float = 0.045,
-    pccovc_lower: float = 0.1,
-    pccovc_upper: float = 0.9,
+    pccnvc_lower: float = 0.00575,
+    pccnvc_upper: float = 0.0575,
+    pccovc_lower: float = 0.025,
+    pccovc_upper: float = 0.975,
     num_pccnvc: int = 2,
     num_pccovc: int = 3,
     pvc: float = 0.0,
-    border_tolerance_outer: float = 2.0,
+    border_tolerance_outer: float = 1.25,
     border_tolerance_inner: float = 1.0,
     bounce_straight_split: float = 0.5,
-    bounce_offset: float = 4 / 5,
+    bounce_offset: float = 2 / 5,
     total_videos: Optional[int] = None,
     exp_scale: float = 1.0,  # seconds
     print_stats: bool = True,
@@ -575,8 +576,6 @@ def generate_straight_trials(
     time_x_diff = diff / (final_velocity_x_magnitude * dt)
     position_y_diff = final_velocity_y_magnitude_linspace * time_x_diff * dt
 
-    # import ipdb; ipdb.set_trace()
-    
     indices_time_in_grayzone_straight = pyutils.repeat_sequence(
         np.arange(num_pos_endpoints),
         num_trials_straight,
@@ -1534,6 +1533,7 @@ def generate_video_dataset(
     shuffle=True,
     validate=True,
     num_blocks=None,
+    variable_length=True
 ):
     *params, dict_metadata = generate_video_parameters(
         **human_video_parameters
@@ -1552,34 +1552,42 @@ def generate_video_dataset(
 
     # Grab relevant variables
     max_length = dict_metadata["video_length_max_f"]
-
-    task = BouncingBallTask(
-        batch_size=len(positions),
-        probability_velocity_change=pvcs,
-        probability_color_change_no_velocity_change=pccnvcs,
-        probability_color_change_on_velocity_change=pccovcs,
-        initial_position=positions,
-        initial_velocity=velocities,
-        initial_color=colors,
-        sequence_length=max_length,
-        **task_parameters,
+    task_parameters = copy.deepcopy(task_parameters)
+    task_parameters["initial_position"] = positions
+    task_parameters["initial_velocity"] = velocities
+    task_parameters["initial_color"] = colors
+    task_parameters["probability_velocity_change"] = pvcs
+    task_parameters["probability_color_change_no_velocity_change"] = pccnvcs
+    task_parameters["probability_color_change_on_velocity_change"] = pccovcs
+    task_parameters["pccnvc_lower"] = None
+    task_parameters["pccnvc_upper"] = None
+    task_parameters["pccovc_lower"] = None
+    task_parameters["pccovc_upper"] = None
+    task_parameters["batch_size"] = len(positions)
+    task_parameters["sequence_mode"] = "reverse"
+    task_parameters["target_future_timestep"] = 0
+    task_parameters["sequence_length"] = max_length
+    task_parameters["sample_velocity_discretely"] = True
+    task_parameters["initial_velocity_points_away_from_grayzone"] = True
+    task_parameters["initial_timestep_is_changepoint"] = False
+    task_parameters["sample_mode"] = "parameter_array"
+    task_parameters["target_mode"] = "parameter_array"
+    task_parameters["return_change"] = True
+    task_parameters["return_change_mode"] = "source"
+    task_parameters["warmup_t_no_rand_velocity_change"] = 20
+    task_parameters["warmup_t_no_rand_color_change"] = max(
+        3, task_parameters.get("warmup_t_no_rand_color_change", 0)
     )
+    
+    task = BouncingBallTask(**task_parameters)
 
     samples = task.samples
     targets = task.targets
 
-    if validate:
-        initial_params = np.concatenate(
-            [np.array(positions), np.stack(colors)],
-            axis=1,
-        )
-        assert np.all(np.isclose(np.array(positions), targets[:, -1, :2]))
-        assert np.all(np.isclose(np.stack(colors), targets[:, -1, 2:5]))
-
     # Update metadata
     dict_metadata["min_t_color_change"] = task.min_t_color_change
 
-    list_samples, list_targets, list_data = [], [], []
+    output_samples, output_targets, output_data = [], [], []
 
     for idx_param, (param, sample, target) in enumerate(
         zip(
@@ -1592,10 +1600,11 @@ def generate_video_dataset(
         position, velocity, color, pccnvc, pccovc, pvc, meta_trial = param
         length = meta_trial["length"]
 
-        # Shorten the videos to the specified length
-        list_samples.append(sample := sample[max_length - length :])
-        list_targets.append(target := target[max_length - length :])
-
+        if variable_length:
+            # Shorten the videos to the specified length
+            output_samples.append(sample := sample[max_length - length :])
+            output_targets.append(target := target[max_length - length :])
+            
         # Update the metadata for the trial
         meta_trial.update(
             {
@@ -1609,57 +1618,36 @@ def generate_video_dataset(
                 "PVC": pvc,
             }
         )
-        list_data.append(meta_trial)
+        output_data.append(meta_trial)
+
+    if variable_length:
+        timesteps = np.array([target.shape[0] for target in output_targets])
+        change_sums = np.array([target.sum(axis=0) for target in output_targets])[:, -4:]
+        
+    else:
+        output_samples = samples
+        output_targets = targets
+        timesteps = np.array([output_targets.shape[1]] * output_targets.shape[0])
+        change_sums = output_targets[:, :, -4:].sum(axis=1)
 
     df_data, dict_metadata = generate_data_df(
-        list_data,
+        output_data,
         dict_metadata,
         targets,
         num_blocks=num_blocks,
     )
 
-    # effective statistics
-    timesteps = np.array([target.shape[0] for target in list_targets])
-    change_sums = np.array([target.sum(axis=0) for target in list_targets])[:, -4:]
+    df_data = add_effective_stats_to_df(df_data, timesteps, change_sums)
 
-    df_data["PCCNVC_effective"] = (
-        change_sums[:, -1] /
-        (timesteps - change_sums[:, -4] - change_sums[:, -3])
-    )
-    df_data["PCCOVC_effective"] = change_sums[:, -2] / change_sums[:, -4]
-    df_data["PVC_effective"] = change_sums[:, -3] / timesteps
-    df_data["Bounces"] = change_sums[:, -4].astype(int)
-    df_data["Random Bounces"] = change_sums[:, -3].astype(int)
-    df_data["Color Change Bounce"] = change_sums[:, -2].astype(int)
-    df_data["Color Change Random"] = change_sums[:, -1].astype(int)
-    # Add observable changes
-
-    # Overall condition descriptors
-    hzs = np.sort(df_data["PCCNVC"].unique())
-    conts = np.sort(df_data["PCCOVC"].unique())
-    df_data["Hazard Rate"] = pd.Categorical(
-        df_data["PCCNVC"].apply(
-            lambda hz: (
-                "Low" if np.isclose(hz, hzs[0]) else
-                "High" if np.isclose(hz, hzs[1]) else
-                "Unknown"
-            )
-        ),
-        categories=["Low", "High"],
-    )
-    df_data["Contingency"] = pd.Categorical(
-        df_data["PCCOVC"].apply(
-            lambda cont: (
-                "Low" if np.isclose(cont, conts[0]) else
-                "Medium" if np.isclose(cont, conts[1]) else
-                "High" if np.isclose(cont, conts[2]) else
-                "Unknown"
-            )
-        ),
-        categories=["Low", "Medium", "High"],
-    )
-
-    return task, list_samples, list_targets, df_data, dict_metadata
+    if validate:
+        initial_params = np.concatenate(
+            [np.array(positions), np.stack(colors)],
+            axis=1,
+        )
+        assert np.all(np.isclose(np.array(positions), targets[:, -1, :2]))
+        assert np.all(np.isclose(np.stack(colors), targets[:, -1, 2:5]))
+    
+    return task, output_samples, output_targets, df_data, dict_metadata
 
 
 if __name__ == "__main__":    
