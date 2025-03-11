@@ -19,7 +19,6 @@ from bouncing_ball_task.utils import gif, logutils, pyutils
 np.set_printoptions(precision=2, linewidth=150)
 
 class BouncingBallTask:
-
     valid_output_modes = {
         "parameter",  # Returns tuples of parameters (position, color)
         "array",  # Returns a np array of the image generated
@@ -32,8 +31,18 @@ class BouncingBallTask:
     }
     valid_return_change_modes = {
         "any",  # Return int for if any change is detected - len 1
-        "feature",  # Return int for changes in each feature - len 2
-        "source",  # Return int for changes split by the source of the change - len 4
+        "feature",
+        # Return int for changes in each feature - len 2
+        #   Target change indices:
+        #     targets[:, : -2] - Any Velocity Change
+        #     targets[:, : -1] - Any Color Change        
+        "source",        
+        # Return int for changes split by the source of the change - len 4
+        #   Target change indices:
+        #     targets[:, : -4] - Velocity Change Bounce - vcr
+        #     targets[:, : -3] - Velocity Change Random - vcb
+        #     targets[:, : -2] - Color Change bounce - ccb
+        #     targets[:, : -1] - Color change random - ccr        
     }
     valid_sequence_modes = {
         "static",  # Sequence is repeated on each iter
