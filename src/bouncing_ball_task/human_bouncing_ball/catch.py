@@ -5,9 +5,9 @@ from bouncing_ball_task.constants import DEFAULT_COLORS
 
 
 def generate_catch_trials(
-    num_trials_catch,
+    num_trials,
     dict_meta,
-    video_lengths_f_catch,        
+    video_lengths_f,        
     print_stats=True,
     use_logger=True,
 ):
@@ -35,14 +35,14 @@ def generate_catch_trials(
         size_x - border_tolerance_outer * ball_radius,
     )
     
-    dict_meta_catch = {"num_trials": num_trials_catch}
+    dict_meta = {"num_trials": num_trials}
 
     # Keep track of possible catch x positions
-    dict_meta_catch["nongrayzone_left_x_range"] = nongrayzone_left_x_range
-    dict_meta_catch["nongrayzone_right_x_range"] = nongrayzone_right_x_range
+    dict_meta["nongrayzone_left_x_range"] = nongrayzone_left_x_range
+    dict_meta["nongrayzone_right_x_range"] = nongrayzone_right_x_range
 
     # Catch Trial Positions
-    final_x_position_catch = pyutils.alternating_ab_sequence(
+    final_x_position = pyutils.alternating_ab_sequence(
         np.linspace(
             *nongrayzone_left_x_range,
             num_pos_endpoints,
@@ -53,59 +53,62 @@ def generate_catch_trials(
             num_pos_endpoints,
             endpoint=True,
         ),
-        num_trials_catch,
+        num_trials,
     ).tolist()
 
-    final_y_position_catch = pyutils.repeat_sequence(
+    final_y_position = pyutils.repeat_sequence(
         np.linspace(
             border_tolerance_outer * ball_radius,
             size_y - border_tolerance_outer * ball_radius,
             2 * num_pos_endpoints,
             endpoint=True,
         ),
-        num_trials_catch,
+        num_trials,
     ).tolist()
-    final_position_catch = zip(
-        final_x_position_catch, final_y_position_catch
+    final_position = zip(
+        final_x_position, final_y_position
     )
 
     # Catch trial velocities
-    final_velocity_catch = zip(
-        [final_velocity_x_magnitude.item()] * num_trials_catch,
+    final_velocity = zip(
+        [final_velocity_x_magnitude.item()] * num_trials,
         pyutils.repeat_sequence(
             final_velocity_y_magnitude_linspace,
-            num_trials_catch,
+            num_trials,
         ).tolist(),
     )
 
     # Catch colors
-    final_color_catch = pyutils.repeat_sequence(
+    final_color = pyutils.repeat_sequence(
         np.array(DEFAULT_COLORS),
-        num_trials_catch,
+        num_trials,
     ).tolist()
 
     # Catch probabilities
-    pccnvc_catch = pyutils.repeat_sequence(
+    pccnvc = pyutils.repeat_sequence(
         pccnvc_linspace,
-        num_trials_catch,
+        num_trials,
     ).tolist()
-    pccovc_catch = pyutils.repeat_sequence(
+    pccovc = pyutils.repeat_sequence(
         pccovc_linspace,
-        num_trials_catch,
+        num_trials,
     ).tolist()
 
     # Put parameters together
-    trials_catch = list(
+    trials = list(
         zip(
-            final_position_catch,
-            final_velocity_catch,
-            final_color_catch,
-            pccnvc_catch,
-            pccovc_catch,
+            final_position,
+            final_velocity,
+            final_color,
+            pccnvc,
+            pccovc,
             [
                 pvc,
             ]
-            * num_trials_catch,
+            * num_trials,
+            [pvc,] * num_trials,
+            [[],] * num_trials,
+            [[],] * num_trials,
             [
                 {
                     "idx": idx,
@@ -116,14 +119,14 @@ def generate_catch_trials(
                     "idx_velocity_y": -1,
                     "idx_x_position": -1,
                     "idx_y_position": -1,
-                    "length": video_lengths_f_catch[idx],
+                    "length": video_lengths_f[idx],
                 }
-                for idx in range(num_trials_catch)
+                for idx in range(num_trials)
             ],
         )
     )
 
     if print_stats:
-        htaskutils.print_type_stats(trials_catch, "catch", duration, use_logger=use_logger)
+        htaskutils.print_type_stats(trials, "catch", duration, use_logger=use_logger)
 
-    return trials_catch, dict_meta_catch
+    return trials, dict_meta

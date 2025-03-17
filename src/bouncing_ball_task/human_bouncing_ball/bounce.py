@@ -5,9 +5,9 @@ from bouncing_ball_task.constants import DEFAULT_COLORS
 
 
 def generate_bounce_trials(
-    num_trials_bounce,
+    num_trials,
     dict_meta,
-    video_lengths_f_bounce,        
+    video_lengths_f,        
     print_stats=True,
     use_logger=True,
 ):
@@ -31,25 +31,25 @@ def generate_bounce_trials(
     x_grayzone_linspace = dict_meta["x_grayzone_linspace"]
     bounce_offset = dict_meta["bounce_offset"]
     
-    dict_meta_bounce = {"num_trials": num_trials_bounce}
+    dict_meta = {"num_trials": num_trials}
 
     # Determine bounce positions
-    left_bounce_x_positions = x_grayzone_linspace - diff * bounce_offset
-    assert mask_start < left_bounce_x_positions.min()
-    right_bounce_x_positions = x_grayzone_linspace + diff * bounce_offset
-    assert right_bounce_x_positions.max() < mask_end
+    left_x_positions = x_grayzone_linspace - diff * bounce_offset
+    assert mask_start < left_x_positions.min()
+    right_x_positions = x_grayzone_linspace + diff * bounce_offset
+    assert right_x_positions.max() < mask_end
 
     # How many final positions are there
-    final_position_index_bounce = dict_meta_bounce[
-        "final_position_index_bounce"
+    final_position_index = dict_meta[
+        "final_position_index"
     ] = np.arange(sum(range(1, num_pos_endpoints + 1)))
 
     # Create indices to x and y positions from these
     # The first x position when entering the grayzone only has one coord,
     # the second has two, until the `num_pos_endpoint`th pos which has
     # `num_pos_endpoint` unique coords
-    final_x_index_bounce = dict_meta_bounce[
-        "final_x_index_bounce"
+    final_x_index = dict_meta[
+        "final_x_index"
     ] = np.repeat(
         np.arange(num_pos_endpoints),
         np.arange(1, num_pos_endpoints + 1),
@@ -57,171 +57,171 @@ def generate_bounce_trials(
     # This is reversed for y - there are `num_pos_endpoints` unqiue coords
     # for the first y coordinate (defined as being the point closest to the
     # top or bottom), and that decreases by one until the last one
-    final_y_index_bounce = dict_meta_bounce[
-        "final_y_index_bounce"
+    final_y_index = dict_meta[
+        "final_y_index"
     ] = [j for i in range(num_pos_endpoints + 1) for j in range(i)]
     
 
     # Create all the indices for the bounce trials
-    indices_final_position_index_bounce = pyutils.repeat_sequence_imbalanced(
-        final_position_index_bounce,
-        final_x_index_bounce,
-        num_trials_bounce,
+    indices_final_position_index = pyutils.repeat_sequence_imbalanced(
+        final_position_index,
+        final_x_index,
+        num_trials,
         roll=True,
     )
 
     # Keep track of coordinate counts
-    dict_meta_bounce[
-        "indices_final_position_index_bounce_counts"
+    dict_meta[
+        "indices_final_position_index_counts"
     ] = np.unique(
-        indices_final_position_index_bounce,
+        indices_final_position_index,
         return_counts=True,
     )
 
     # How long does it take to get between each x position
     time_steps_between_x = diff / (final_velocity_x_magnitude * dt)
     # How long from a bounce to the first end position
-    time_steps_bounce = time_steps_between_x * bounce_offset
+    time_steps = time_steps_between_x * bounce_offset
     # How long from a bounce to all possible endpoints
-    time_steps_bounce_all_pos = (
+    time_steps_all_pos = (
         np.arange(num_pos_endpoints) * time_steps_between_x
-        + time_steps_bounce
+        + time_steps
     )
 
     # How far does the ball travel in each of those cases
-    y_distance_traversed_bounce = dict_meta_bounce[
-        "y_distance_traversed_bounce"
+    y_distance_traversed = dict_meta[
+        "y_distance_traversed"
     ] = (
         final_velocity_y_magnitude_linspace[:, np.newaxis]
-        * time_steps_bounce_all_pos
+        * time_steps_all_pos
         * dt
     )
     # What positions do those correspond to
-    final_y_positions_bounce = dict_meta_bounce[
-        "final_y_positions_bounce"
+    final_y_positions = dict_meta[
+        "final_y_positions"
     ] = np.stack(
         [
-            y_distance_traversed_bounce + ball_radius,  # top
-            size_y - y_distance_traversed_bounce - ball_radius,  # bottom
+            y_distance_traversed + ball_radius,  # top
+            size_y - y_distance_traversed - ball_radius,  # bottom
         ]
     )
 
     # Binary arrays for whether the ball enters the grayzone from the left or
     # right and if it is going towards the top or bottom
-    sides_left_right_bounce = pyutils.repeat_sequence(
+    sides_left_right = pyutils.repeat_sequence(
         np.array([0, 1] * num_pos_endpoints),
-        num_trials_bounce,
+        num_trials,
     ).astype(int)
-    sides_top_bottom_bounce = pyutils.repeat_sequence(
+    sides_top_bottom = pyutils.repeat_sequence(
         np.array([0, 1] * num_pos_endpoints),
-        num_trials_bounce,
+        num_trials,
     ).astype(int)
 
     # Compute the signs of the velocities using the sides
-    velocity_x_sign_bounce = 2 * sides_left_right_bounce - 1
-    velocity_y_sign_bounce = 2 * sides_top_bottom_bounce - 1
+    velocity_x_sign = 2 * sides_left_right - 1
+    velocity_y_sign = 2 * sides_top_bottom - 1
 
     # Precompute indices to sample the velocities from
     indices_velocity_y_magnitude = pyutils.repeat_sequence(
         np.array(list(range(num_y_velocities)) * num_pos_endpoints),
-        num_trials_bounce,
+        num_trials,
     ).astype(int)
 
     # Keep track of velocities
-    dict_meta_bounce["indices_velocity_y_magnitude_counts"] = np.unique(
+    dict_meta["indices_velocity_y_magnitude_counts"] = np.unique(
         indices_velocity_y_magnitude,
         return_counts=True,
     )
 
     # Precompute colors
-    final_color_bounce = pyutils.repeat_sequence(
+    final_color = pyutils.repeat_sequence(
         np.array(DEFAULT_COLORS),
-        num_trials_bounce,
+        num_trials,
         shuffle=False,
         roll=True,
     ).tolist()
 
     # Keep track of color counts
-    dict_meta_bounce["final_color_counts"] = np.unique(
-        final_color_bounce,
+    dict_meta["final_color_counts"] = np.unique(
+        final_color,
         return_counts=True,
         axis=0,
     )
 
     # Precompute the statistics
-    pccnvc_bounce = pyutils.repeat_sequence(
+    pccnvc = pyutils.repeat_sequence(
         pccnvc_linspace,
         # np.tile(pccnvc_linspace, num_pccovc),
-        num_trials_bounce,
+        num_trials,
         shuffle=False,
     ).tolist()
-    pccovc_bounce = pyutils.repeat_sequence(
+    pccovc = pyutils.repeat_sequence(
         pccovc_linspace,
         # np.tile(pccovc_linspace, num_pccnvc),
-        num_trials_bounce,
+        num_trials,
         shuffle=False,
     ).tolist()
 
     # Keep track of pcc counts
-    dict_meta_bounce["pccnvc_counts"] = np.unique(
-        pccnvc_bounce,
+    dict_meta["pccnvc_counts"] = np.unique(
+        pccnvc,
         return_counts=True,
     )
-    dict_meta_bounce["pccovc_counts"] = np.unique(
-        pccovc_bounce,
+    dict_meta["pccovc_counts"] = np.unique(
+        pccovc,
         return_counts=True,
     )
-    dict_meta_bounce["pccnvc_pccovc_counts"] = np.unique(
-        [x for x in zip(*(pccnvc_bounce, pccovc_bounce))],
+    dict_meta["pccnvc_pccovc_counts"] = np.unique(
+        [x for x in zip(*(pccnvc, pccovc))],
         return_counts=True,
         axis=0,
     )
 
     final_x_position_indices = []
     final_y_position_indices = []
-    final_position_bounce = []
-    final_velocity_bounce = []
-    meta_bounce = []
+    final_position = []
+    final_velocity = []
+    meta = []
 
-    for idx in range(num_trials_bounce):
+    for idx in range(num_trials):
         # Get an index of position
-        idx_position = indices_final_position_index_bounce[idx]
+        idx_position = indices_final_position_index[idx]
 
         # Choose the sides to enter the grayzone
-        side_left_right = sides_left_right_bounce[idx]
-        side_top_bottom = sides_top_bottom_bounce[idx]
+        side_left_right = sides_left_right[idx]
+        side_top_bottom = sides_top_bottom[idx]
 
         # Get the y velocity index for this trial
         idx_velocity_y = indices_velocity_y_magnitude[idx]
 
         # Final velocities
         final_velocity_x = (
-            final_velocity_x_magnitude * velocity_x_sign_bounce[idx]
+            final_velocity_x_magnitude * velocity_x_sign[idx]
         ).item()
         final_velocity_y = (
             final_velocity_y_magnitude_linspace[idx_velocity_y]
-            * velocity_y_sign_bounce[idx]
+            * velocity_y_sign[idx]
         ).item()
-        final_velocity_bounce.append((final_velocity_x, final_velocity_y))
+        final_velocity.append((final_velocity_x, final_velocity_y))
 
         # Get the bounce indices
-        final_x_position_index = final_x_index_bounce[idx_position]
+        final_x_position_index = final_x_index[idx_position]
         final_x_position_indices.append(final_x_position_index)
-        final_y_position_index = final_y_index_bounce[idx_position]
+        final_y_position_index = final_y_index[idx_position]
         final_y_position_indices.append(final_y_position_index)
 
         # Grab the final positions
         final_position_x = x_grayzone_linspace_sides[
             side_left_right, final_x_position_index
         ].item()
-        final_position_y = final_y_positions_bounce[
+        final_position_y = final_y_positions[
             side_top_bottom,
             idx_velocity_y,
             final_y_position_index,
         ].item()
-        final_position_bounce.append((final_position_x, final_position_y))
+        final_position.append((final_position_x, final_position_y))
 
-        meta_bounce.append(
+        meta.append(
             {
                 "idx": idx,
                 "trial": "bounce",
@@ -230,52 +230,51 @@ def generate_bounce_trials(
                 "side_left_right": side_left_right,
                 "side_top_bottom": side_top_bottom,
                 "idx_velocity_y": idx_velocity_y,
-                "length": video_lengths_f_bounce[idx],
+                "length": video_lengths_f[idx],
                 "idx_x_position": final_x_position_index,
-                "idx_y_position": final_y_position_index,                    
+                "idx_y_position": final_y_position_index,
             }
         )
 
     # Keep track of position counts
-    dict_meta_bounce["x_grayzone_position_indices_counts"] = np.unique(
+    dict_meta["x_grayzone_position_indices_counts"] = np.unique(
         final_x_position_indices,
         return_counts=True,
     )
-    dict_meta_bounce["y_grayzone_position_indices_counts"] = np.unique(
+    dict_meta["y_grayzone_position_indices_counts"] = np.unique(
         final_y_position_indices,
         return_counts=True,
     )
-    dict_meta_bounce["x_grayzone_position_counts"] = np.unique(
-        [x for x in zip(*final_position_bounce)][0],
+    dict_meta["x_grayzone_position_counts"] = np.unique(
+        [x for x in zip(*final_position)][0],
         return_counts=True,
     )
-    dict_meta_bounce["y_grayzone_position_counts"] = np.unique(
-        [y for y in zip(*final_position_bounce)][1],
+    dict_meta["y_grayzone_position_counts"] = np.unique(
+        [y for y in zip(*final_position)][1],
         return_counts=True,
     )
 
     # Put bounce parameters together
-    trials_bounce = list(
+    trials = list(
         zip(
-            final_position_bounce,
-            final_velocity_bounce,
-            final_color_bounce,
-            pccnvc_bounce,
-            pccovc_bounce,
-            [
-                pvc,
-            ]
-            * num_trials_bounce,
-            meta_bounce,
+            final_position,
+            final_velocity,
+            final_color,
+            pccnvc,
+            pccovc,
+            [pvc,] * num_trials,
+            [[],] * num_trials,
+            [[],] * num_trials,
+            meta,
         )
     )
 
     if print_stats:
         htaskutils.print_type_stats(
-            trials_bounce,
+            trials,
             "bounce",
             duration,
             use_logger=use_logger,
         )
 
-    return trials_bounce, dict_meta_bounce
+    return trials, dict_meta

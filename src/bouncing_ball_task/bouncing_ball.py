@@ -318,7 +318,6 @@ class BouncingBallTask:
         ):
             for batch_idx, batch in enumerate(self.forced_velocity_bounce_x):
                 for time_idx in batch:
-
                     forced_velocity_bounce_x_array[time_idx, batch_idx] = True
         else:
             forced_velocity_bounce_x_array[self.forced_velocity_bounce_x] = True

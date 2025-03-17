@@ -25,12 +25,14 @@ from bouncing_ball_task.utils import logutils, pyutils, taskutils, htaskutils
 from bouncing_ball_task.human_bouncing_ball.catch import generate_catch_trials
 from bouncing_ball_task.human_bouncing_ball.straight import generate_straight_trials
 from bouncing_ball_task.human_bouncing_ball.bounce import generate_bounce_trials
+from bouncing_ball_task.human_bouncing_ball.nonwall import generate_nonwall_trials
 
 
 dict_trial_type_generation_funcs = {
     "catch": generate_catch_trials,
     "straight": generate_straight_trials,
     "bounce": generate_bounce_trials,
+    "nonwall": generate_nonwall_trials,
 }
 trial_types = tuple(key for key, _ in dict_trial_type_generation_funcs.items())
 
@@ -54,7 +56,7 @@ def generate_video_dataset(
     if shuffle:
         random.shuffle(params_flattened)
     
-    positions, velocities, colors, pccnvcs, pccovcs, pvcs, meta_trials = (
+    positions, velocities, colors, pccnvcs, pccovcs, pvcs, fxvc, fyvc, meta_trials = (
         list(param) for param in zip(*params_flattened)
     )
 
@@ -67,6 +69,8 @@ def generate_video_dataset(
     task_parameters["probability_velocity_change"] = pvcs
     task_parameters["probability_color_change_no_velocity_change"] = pccnvcs
     task_parameters["probability_color_change_on_velocity_change"] = pccovcs
+    task_parameters["forced_velocity_bounce_x"] = fxvc
+    task_parameters["forced_velocity_bounce_y"] = fyvc
     task_parameters["pccnvc_lower"] = None
     task_parameters["pccnvc_upper"] = None
     task_parameters["pccovc_lower"] = None
@@ -128,11 +132,11 @@ def generate_video_parameters(
     total_dataset_length: Optional[int] = 35,  # minutes
     mask_center: float = 0.5,
     mask_fraction: float = 1 / 3,
-    num_pos_endpoints: int = 5,
+    num_pos_endpoints: int = 3,
+    num_pos_bounce: int = 1,
     velocity_lower: float = 1 / 12.5,
     velocity_upper: float = 1 / 7.5,
     num_y_velocities: int = 2,
-    p_catch_trials: float = 0.05,
     pccnvc_lower: float = 0.00575,
     pccnvc_upper: float = 0.0575,
     pccovc_lower: float = 0.025,
@@ -142,7 +146,7 @@ def generate_video_parameters(
     pvc: float = 0.0,
     border_tolerance_outer: float = 1.25,
     border_tolerance_inner: float = 1.0,
-    bounce_straight_split: float = 0.5,
+    trial_type_split: float = (0.05, -1, -1, -1),
     bounce_offset: float = 2 / 5,
     total_videos: Optional[int] = None,
     exp_scale: float = 1.0,  # seconds
@@ -197,9 +201,6 @@ def generate_video_parameters(
     num_y_velocities : int, default=2
         Number of distinct velocities in the y-direction.
 
-    p_catch_trials : float, default=0.05
-        Probability of trials where the ball catches (stops moving).
-
     pccnvc_lower : float, default=0.01
         Lower probability of a color change not accompanying a velocity change.
 
@@ -228,8 +229,8 @@ def generate_video_parameters(
     border_tolerance_inner : float, default=1.0
         Tolerance for the ball touching the inner border of the frame.
 
-    bounce_straight_split : float, default=0.5
-        Probability of the ball bouncing straight back upon collision.
+    trial_type_split : float, default=0.5
+        Relative proportions of the trial types
 
     bounce_offset : float, default=0.8
         Offset applied to the ball's bounce direction, expressed as a fraction
@@ -261,18 +262,17 @@ def generate_video_parameters(
     seed = pyutils.set_global_seed(seed)
     
     # Convenience
-    dict_num_trials_type, dict_video_lengths_f_type = compute_dataset_size(
+    dict_num_trials_type, dict_video_lengths_f_type = htaskutils.compute_dataset_size(
         exp_scale,
         fixed_video_length,
         video_length_min_s,
         duration,
         total_dataset_length,
         total_videos,
-        p_catch_trials,
-        bounce_straight_split,
+        trial_type_split,
     )
 
-    dict_metadata = generate_initial_dict_metadata(
+    dict_metadata = htaskutils.generate_initial_dict_metadata(
         dict_num_trials_type,
         dict_video_lengths_f_type,
         size_frame,
@@ -294,6 +294,7 @@ def generate_video_parameters(
         mask_center,
         bounce_offset,
         num_pos_endpoints,
+        num_pos_bounce,
         border_tolerance_outer,
         border_tolerance_inner,
         seed,
@@ -315,380 +316,8 @@ def generate_video_parameters(
             )
             list_trials_all.append(trials)
     
-    return *list_trials_all, dict_metadata
+    return *list_trials_all, dict_metadata        
 
-
-def compute_dataset_size(
-        exp_scale,
-        fixed_video_length,
-        video_length_min_s,
-        duration,
-        total_dataset_length,
-        total_videos,
-        p_catch_trials,
-        bounce_straight_split,
-):
-    # Bring exp to same scale as time
-    exp_scale_ms = exp_scale * 1000
-
-    # Set the min length to be the fixed length if passed
-    if fixed_video_length is not None:
-        video_length_min_f = fixed_video_length
-
-    # Set it according to the min number of seconds
-    elif video_length_min_s is not None:
-        video_length_min_desired_ms = int(np.array(video_length_min_s) * 1000)
-        video_length_min_f = np.rint(
-            video_length_min_desired_ms / duration
-        ).astype(int)
-
-    # Turn into ms
-    video_length_min_ms = video_length_min_f * duration
-        
-    # Compute the number of videos we can make given the contraints if not
-    # explicitly provided with a total number of videos
-    if total_videos is None:
-        return compute_dataset_size_time_based(
-            total_dataset_length,
-            p_catch_trials,
-            video_length_min_f,
-            video_length_min_ms,
-            bounce_straight_split,
-            exp_scale_ms,
-            duration,
-        )
-    else:
-        return compute_dataset_size_video_based(
-            total_videos,
-            p_catch_trials,
-            video_length_min_f,
-            video_length_min_ms,
-            bounce_straight_split,
-            fixed_video_length,
-            exp_scale_ms,
-            duration,
-        )
-
-    
-def compute_dataset_size_time_based(
-        total_dataset_length,
-        p_catch_trials,
-        video_length_min_f,
-        video_length_min_ms,
-        bounce_straight_split,
-        exp_scale_ms,
-        duration,
-):
-    max_dataset_length_ms = total_dataset_length * 60 * 1000  # * s * ms
-
-    # Compute the lengths of catch trials
-    length_ms_rough_catch = max_dataset_length_ms * p_catch_trials
-    num_trials_catch = int(length_ms_rough_catch / video_length_min_ms)
-    length_ms_catch = num_trials_catch * video_length_min_ms
-    video_lengths_f_catch = np.rint(
-        np.array(num_trials_catch * [video_length_min_f])
-    ).astype(int)
-
-    # Get the remaining lengths of the dataset
-    effective_dataset_length_ms = max_dataset_length_ms - length_ms_catch
-    length_ms_bounce = effective_dataset_length_ms * bounce_straight_split
-    length_ms_straight = effective_dataset_length_ms - length_ms_bounce
-
-    # Estimate the number of videos and then sample lengths
-    estimated_num_samples = (
-        int(effective_dataset_length_ms / video_length_min_ms) + 1
-    )
-    estimated_video_lengths_ms = (
-        np.random.exponential(exp_scale_ms, estimated_num_samples)
-        + video_length_min_ms
-    )
-    estimated_video_lengths_f = np.rint(
-        estimated_video_lengths_ms / duration
-    ).astype(int)
-    cumsum_video_lengths = np.cumsum(estimated_video_lengths_ms)
-
-    # Grab a subset for the bounce trials
-    length_idx_bounce = (
-        np.where(cumsum_video_lengths < length_ms_bounce)[0][-1] + 1
-    )
-    length_ms_bounce = cumsum_video_lengths[length_idx_bounce]
-    video_lengths_f_bounce = estimated_video_lengths_f[:length_idx_bounce]
-    num_trials_bounce = len(video_lengths_f_bounce)
-
-    # Get another subset for the straight trials
-    length_idx_straight = (
-        np.where(
-            cumsum_video_lengths[length_idx_bounce + 1 :] - length_ms_bounce
-            < length_ms_straight
-        )[0][-1]
-        + 1
-    )
-    length_ms_straight = (
-        cumsum_video_lengths[length_idx_bounce + length_idx_straight + 1]
-        - length_ms_bounce
-    )
-    video_lengths_f_straight = estimated_video_lengths_f[
-        length_idx_bounce + 1 : length_idx_straight + length_idx_bounce + 1
-    ]
-    num_trials_straight = len(video_lengths_f_straight)
-
-    # # Get the overall lengths and do a quick sanity check
-    # total_videos = (
-    #     num_trials_catch + num_trials_bounce + num_trials_straight
-    # )
-
-    dict_num_trials_type = {
-        "catch": num_trials_catch,
-        "straight": num_trials_straight,
-        "bounce": num_trials_bounce,
-    }
-    dict_video_lengths_f_type = {
-        "catch": video_lengths_f_catch,
-        "straight": video_lengths_f_straight,
-        "bounce": video_lengths_f_bounce,
-    }
-    assert sum(sum(v) for _, v in dict_video_lengths_f_type.items()) * duration < max_dataset_length_ms
-    
-    return dict_num_trials_type, dict_video_lengths_f_type
-
-
-def compute_dataset_size_video_based(
-        total_videos,
-        p_catch_trials,
-        video_length_min_f,
-        video_length_min_ms,
-        bounce_straight_split,
-        fixed_video_length,
-        exp_scale_ms,
-        duration,
-):
-    # Split according to the desired number of trials
-    num_trials_catch = int(total_videos * p_catch_trials)
-    video_lengths_f_catch = np.rint(
-        np.array(num_trials_catch * [video_length_min_f])
-    ).astype(int)
-
-    num_trials_noncatch = total_videos - num_trials_catch
-    num_trials_bounce = int(num_trials_noncatch * bounce_straight_split)
-    if fixed_video_length is None:
-        video_lengths_f_bounce = np.rint(
-            (
-                np.random.exponential(exp_scale_ms, num_trials_bounce)
-                + video_length_min_ms
-            )
-            / duration
-        ).astype(int)
-    else:
-        video_lengths_f_bounce = np.array(
-            [fixed_video_length] * num_trials_bounce
-        ).astype(int)
-
-    num_trials_straight = num_trials_noncatch - num_trials_bounce
-    if fixed_video_length is None:
-        video_lengths_f_straight = np.rint(
-            (
-                np.random.exponential(exp_scale_ms, num_trials_straight)
-                + video_length_min_ms
-            )
-            / duration
-        ).astype(int)
-    else:
-        video_lengths_f_straight = np.array(
-            [fixed_video_length] * num_trials_straight
-        ).astype(int)
-        
-    dict_num_trials_type = {
-        "catch": num_trials_catch,
-        "straight": num_trials_straight,
-        "bounce": num_trials_bounce,
-    }
-    dict_video_lengths_f_type = {
-        "catch": video_lengths_f_catch,
-        "straight": video_lengths_f_straight,
-        "bounce": video_lengths_f_bounce,
-    }
-    
-    return dict_num_trials_type, dict_video_lengths_f_type
-
-
-def generate_initial_dict_metadata(
-        dict_num_trials_type,
-        dict_video_lengths_f_type,
-        size_frame,
-        duration,
-        ball_radius,
-        dt,
-        exp_scale,
-        velocity_lower,
-        velocity_upper,
-        num_y_velocities,
-        pvc,
-        pccnvc_lower,
-        pccnvc_upper,
-        num_pccnvc,
-        pccovc_lower,
-        pccovc_upper,
-        num_pccovc,
-        mask_fraction,
-        mask_center,
-        bounce_offset,
-        num_pos_endpoints,
-        border_tolerance_outer,
-        border_tolerance_inner,
-        seed,
-):
-    # Convenience
-    size_x, size_y = size_frame
-
-    # Start with basic params
-    dict_metadata = {
-        "ball_radius": ball_radius,
-        "dt": dt,
-        "duration": duration,
-        "exp_scale": exp_scale,
-        "border_tolerance_outer": border_tolerance_outer,
-        "mask_center": mask_center,
-        "mask_fraction": mask_fraction,
-        "size_x": size_x,
-        "size_y": size_y,
-        "num_pos_endpoints": num_pos_endpoints,
-        "pvc": pvc,
-        "num_y_velocities": num_y_velocities,
-        "bounce_offset": bounce_offset,
-        "seed": seed,
-    }
-    
-    # Useful quantities
-    dict_metadata["num_trials"] = sum(
-        num_trials for _, num_trials in dict_num_trials_type.items()
-    )
-    
-    dict_metadata["length_trials_ms"] = duration * sum(
-        sum(video_lengths_f)
-        for _, video_lengths_f in dict_video_lengths_f_type.items()
-    )
-    
-    dict_metadata["video_length_max_f"] = video_length_max_f = max(
-        max(video_lengths_f)
-        for _, video_lengths_f in dict_video_lengths_f_type.items()
-        if video_lengths_f.size > 0
-    )
-    dict_metadata["video_length_max_ms"] = video_length_max_f * duration
-    
-    dict_metadata["video_length_min_f"] = video_length_min_f = min(
-        min(video_lengths_f)
-        for _, video_lengths_f in dict_video_lengths_f_type.items()
-        if video_lengths_f.size > 0
-    )
-    dict_metadata["video_length_min_ms"] = video_length_min_f * duration
-
-
-    # Velocity Linspaces
-    dict_metadata["final_velocity_x_magnitude"] = (
-        np.mean([velocity_lower, velocity_upper]) * size_x
-    )
-    dict_metadata["final_velocity_y_magnitude_linspace"] = np.linspace(
-        velocity_lower * size_y,
-        velocity_upper * size_y,
-        num_y_velocities,
-        endpoint=True,
-    )
-
-    # Probability Linspaces
-    dict_metadata["pccnvc_linspace"] = np.linspace(
-        pccnvc_lower,
-        pccnvc_upper,
-        num_pccnvc,
-        endpoint=True,
-    )
-    dict_metadata["pccovc_linspace"] = np.linspace(
-        pccovc_lower,
-        pccovc_upper,
-        num_pccovc,
-        endpoint=True,
-    )
-
-    # Mask positions
-    dict_metadata["mask_size"] = mask_size = int(np.round(size_x * mask_fraction))
-    dict_metadata["mask_start"] = mask_start = int(
-        np.round((mask_center * size_x) - mask_size / 2)
-    )
-    dict_metadata["mask_end"] = mask_end = size_x - mask_start
-
-
-
-    # Normal trials
-    # x position Grayzone linspace
-    dict_metadata["x_grayzone_linspace"] = x_grayzone_linspace = np.linspace(
-        mask_start + (border_tolerance_inner + 1) * ball_radius,
-        mask_end - (border_tolerance_inner + 1) * ball_radius,
-        num_pos_endpoints,
-        endpoint=True,
-    )
-
-    # Final x position linspaces that correspond to approaching from each side
-    x_grayzone_linspace_reversed = x_grayzone_linspace[::-1]
-    dict_metadata["x_grayzone_linspace_sides"] = np.vstack(
-        [
-            x_grayzone_linspace,
-            x_grayzone_linspace_reversed,
-        ]
-    )
-
-    # Get the final y positions depending on num of end x
-    dict_metadata["diff"] = np.diff(x_grayzone_linspace).mean()
-
-    # Fill with starting values
-    return dict_metadata
-
-
-
-def shorten_trials_and_update_meta(params_flattened, samples, targets, duration, variable_length=True):
-    output_samples, output_targets, output_data = [], [], []    
-    for idx_param, (param, sample, target) in enumerate(
-        zip(
-            params_flattened,
-            samples,
-            targets,
-        )
-    ):
-        # Grab the relevant params
-        position, velocity, color, pccnvc, pccovc, pvc, meta_trial = param
-        length = meta_trial["length"]
-
-        if variable_length:
-            # Shorten the videos to the specified length
-            output_samples.append(sample := sample[max_length - length :])
-            output_targets.append(target := target[max_length - length :])
-            
-        # Update the metadata for the trial
-        meta_trial.update(
-            {
-                "Final Color": default_ball_colors[np.argmax(target[-1, 2:])],
-                "Final X Position": sample[-1, 0],
-                "Final Y Position": sample[-1, 1],
-                "Final X Velocity": -velocity[0],
-                "Final Y Velocity": -velocity[1],
-                "PCCNVC": pccnvc,
-                "PCCOVC": pccovc,
-                "PVC": pvc,
-                "length_ms": length * duration,
-            }
-        )
-        output_data.append(meta_trial)
-        
-    if variable_length:
-        timesteps = np.array([target.shape[0] for target in output_targets])
-        change_sums = np.array([target.sum(axis=0) for target in output_targets])[:, -4:]
-        
-    else:
-        output_samples = samples
-        output_targets = targets
-        timesteps = np.array([output_targets.shape[1]] * output_targets.shape[0])
-        change_sums = output_targets[:, :, -4:].sum(axis=1)
-
-    return output_data, output_samples, output_targets, timesteps, change_sums    
-        
 
 def generate_data_df(
     row_data,
@@ -750,7 +379,53 @@ def generate_data_df(
         
     return df_trial_metadata, dict_metadata
 
-    
+
+def shorten_trials_and_update_meta(params_flattened, samples, targets, duration, variable_length=True):
+    output_samples, output_targets, output_data = [], [], []    
+    for idx_param, (param, sample, target) in enumerate(
+        zip(
+            params_flattened,
+            samples,
+            targets,
+        )
+    ):
+        # Grab the relevant params
+        position, velocity, color, pccnvc, pccovc, pvc, meta_trial = param
+        length = meta_trial["length"]
+
+        if variable_length:
+            # Shorten the videos to the specified length
+            output_samples.append(sample := sample[max_length - length :])
+            output_targets.append(target := target[max_length - length :])
+            
+        # Update the metadata for the trial
+        meta_trial.update(
+            {
+                "Final Color": default_ball_colors[np.argmax(target[-1, 2:])],
+                "Final X Position": sample[-1, 0],
+                "Final Y Position": sample[-1, 1],
+                "Final X Velocity": -velocity[0],
+                "Final Y Velocity": -velocity[1],
+                "PCCNVC": pccnvc,
+                "PCCOVC": pccovc,
+                "PVC": pvc,
+                "length_ms": length * duration,
+            }
+        )
+        output_data.append(meta_trial)
+        
+    if variable_length:
+        timesteps = np.array([target.shape[0] for target in output_targets])
+        change_sums = np.array([target.sum(axis=0) for target in output_targets])[:, -4:]
+        
+    else:
+        output_samples = samples
+        output_targets = targets
+        timesteps = np.array([output_targets.shape[1]] * output_targets.shape[0])
+        change_sums = output_targets[:, :, -4:].sum(axis=1)
+
+    return output_data, output_samples, output_targets, timesteps, change_sums    
+
 
 def generate_blocks_from_data_df(
     df_trial_metadata,
@@ -1034,12 +709,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_y_velocities", type=int, default=2, help="Number of y velocities"
     )
-    parser.add_argument(
-        "--p_catch_trials",
-        type=float,
-        default=0.05,
-        help="Probability of catch trials",
-    )
     parser.add_argument("--dryrun", action="store_true", help="Enable dry run")
 
     parser.add_argument(
@@ -1074,9 +743,8 @@ if __name__ == "__main__":
         help="Border tolerance inner",
     )
     parser.add_argument(
-        "--bounce_straight_split",
-        type=float,
-        default=0.5,
+        "--trial_type_split",
+        default=(0.05, -1, -1, -1),
         help="Bounce straight split",
 
     )
@@ -1176,12 +844,11 @@ if __name__ == "__main__":
         velocity_lower=args.velocity_lower,
         velocity_upper=args.velocity_upper,
         num_y_velocities=args.num_y_velocities,
-        p_catch_trials=args.p_catch_trials,
         num_pccnvc=args.num_pccnvc,
         num_pccovc=args.num_pccovc,
         border_tolerance_outer=args.border_tolerance_outer,
         border_tolerance_inner=args.border_tolerance_inner,
-        bounce_straight_split=args.bounce_straight_split,
+        trial_type_split=args.trial_type_split,
         total_videos=args.total_videos,
         exp_scale=args.exp_scale,
     )
@@ -1199,7 +866,7 @@ if __name__ == "__main__":
         max_length = args.sequence_length
         
     params_flattened = list(itertools.chain.from_iterable(params))    
-    positions, velocities, colors, pccnvcs, pccovcs, pvcs, meta_trials = (
+    positions, velocities, colors, pccnvcs, pccovcs, pvcs, fxvc, fyvc, meta_trials = (
         list(param) for param in zip(*params_flattened)
     )
 
@@ -1222,6 +889,8 @@ if __name__ == "__main__":
         probability_velocity_change=pvcs,
         probability_color_change_no_velocity_change=pccnvcs,
         probability_color_change_on_velocity_change=pccovcs,
+        forced_velocity_bounce_x=fxvc,
+        forced_velocity_bounce_y=fyvc,
         initial_position=positions,
         initial_velocity=velocities,
         initial_color=colors,

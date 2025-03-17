@@ -585,3 +585,69 @@ def repeat_sequence_imbalanced(
         value_counter[value] += 1
     return output
 
+def create_sequence_splits(seq, total=None):
+    # Replace any None values with -1 (wildcard marker)
+    seq = [x if x is not None else -1 for x in seq]
+
+    # Prepare to calculate fixed sum and track wildcards
+    fixed_sum = 0
+    wildcard_indices = []
+    wildcard_weights = []
+    
+    # Build the final list using this placeholder list.
+    result = [None] * len(seq)
+    
+    for idx, value in enumerate(seq):
+        # Treat any non-negative value as fixed
+        if value >= 0:
+            fixed_sum += value
+            result[idx] = value
+        else:
+            # Record index and weight (absolute value of negative wildcard)
+            wildcard_indices.append(idx)
+            wildcard_weights.append(abs(value))
+    
+    if wildcard_indices:
+        # If total is None or fixed_sum < 1.0, use total as 1.0
+        total = total if total is not None and fixed_sum > 1.0 else 1.0
+        
+        # Calculate the remainder to be distributed among wildcards
+        remainder = total - fixed_sum
+            
+        # Ensure that the fixed values do not exceed or equal the total.
+        if remainder < 0.0:
+            raise ValueError(
+                f"Using wildcard values but total of non-wildcard values {fixed_sum}"
+                f"exceeds total {total}."
+            )
+
+        # Prevent a divide by zero
+        total_weight = sum(wildcard_weights)
+        if wildcard_indices and total_weight == 0:
+            raise ValueError("Wildcard weights sum to zero, cannot distribute remainder.")
+
+        # Allocate the remainder to each wildcard based on its weight
+        for i, idx in enumerate(wildcard_indices):
+            result[idx] = remainder * wildcard_weights[i] / sum(wildcard_weights)
+        
+    return [val / sum(result) for val in result]
+
+# Example usage:
+# For input [1, 1, -2, -1, -1] with total = 10:
+# Fixed values: 1 and 1 (sum = 2), remainder = 8.
+# Wildcard weights: 2, 1, 1 (total weight = 4) leading to replacements: 8*2/4=4, 8*1/4=2, 8*1/4=2.
+# If norm is False, result is [1, 1, 4, 2, 2]. If norm is True, result is [0.1, 0.1, 0.4, 0.2, 0.2].
+
+# Test examples
+if __name__ == "__main__":
+    # Example 1: normalized splits
+    splits_norm = create_sequence_splits([1, 1, -2, -1, -1], total=10, norm=True)
+    print("Normalized splits:", splits_norm)  # Expected: [0.1, 0.1, 0.4, 0.2, 0.2]
+
+    # Example 2: raw splits
+    splits_raw = create_sequence_splits([1, 1, None, -1, -1], total=10, norm=False)
+    print("Raw splits:", splits_raw)  # None becomes -1 then processed as wildcard
+
+    # Example 3: when no wildcards are provided, just normalized:
+    splits_fixed = create_sequence_splits([0.3, 0.3, 0.2], norm=True)
+    print("Fixed normalized splits:", splits_fixed)
