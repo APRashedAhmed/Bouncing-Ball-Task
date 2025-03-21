@@ -21,11 +21,11 @@ class TaskParameters(_BaseTaskParameters):
     initial_velocity_points_away_from_grayzone: bool = True
     initial_timestep_is_changepoint: bool = False
     min_t_color_change_after_random: int = 15
-    min_t_color_change_after_bounce: int = 15
+    min_t_color_change_after_bounce: int = 10
     min_t_velocity_change_after_random: int = 15
-    min_t_velocity_change_after_bounce: int = 15
+    min_t_velocity_change_after_bounce: int = 10
     warmup_t_no_rand_velocity_change: int = 20
-    warmup_t_no_rand_color_change: int = 5
+    warmup_t_no_rand_color_change: int = 2
 
 
 @dataclass

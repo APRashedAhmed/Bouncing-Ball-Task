@@ -15,7 +15,8 @@ def last_visible_color(
         mask_start,
         mask_end,
         time_step_mode="inner",
-        tol=1,
+        tol=0,
+        return_index=False,
 ):
     """Determine the last visible RGB color of a ball before it fully enters a
     masked region in a series of trajectories represented by a 3D array.
@@ -82,12 +83,15 @@ def last_visible_color(
     # Use argmax to find the first 1.0 in the reversed tensor, then calculating
     # timesteps - 1 - index gives the correct index in the original tensor
     first_out_mask_reversed = np.argmax(out_mask_reversed, axis=1)
-    last_visible_index = timesteps - first_out_mask_reversed
+    last_visible_index = timesteps - first_out_mask_reversed - 1
 
     # Use this to index the original tensor for the last visible color
     last_visible_colors = samples[np.arange(batch_size), last_visible_index, 2:]
 
-    return last_visible_colors  # , last_visible_index
+    if return_index:
+        return last_visible_colors, last_visible_index
+    else:
+        return last_visible_colors
 
 
 def load_human_trial_raw_data(

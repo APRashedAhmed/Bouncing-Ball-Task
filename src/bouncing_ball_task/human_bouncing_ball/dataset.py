@@ -92,8 +92,10 @@ def generate_video_dataset(
         task_parameters["sample_velocity_discretely"] = defaults.sample_velocity_discretely
         task_parameters["initial_velocity_points_away_from_grayzone"] = defaults.initial_velocity_points_away_from_grayzone
         task_parameters["initial_timestep_is_changepoint"] = defaults.initial_timestep_is_changepoint
-        task_parameters["min_t_color_change"] = defaults.min_t_color_change
-        task_parameters["min_t_velocity_change"] = defaults.min_t_velocity_change
+        task_parameters["min_t_color_change_after_bounce"] = defaults.min_t_color_change_after_bounce
+        task_parameters["min_t_velocity_change_after_bounce"] = defaults.min_t_velocity_change_after_bounce
+        task_parameters["min_t_color_change_after_random"] = defaults.min_t_color_change_after_random
+        task_parameters["min_t_velocity_change_after_random"] = defaults.min_t_velocity_change_after_random
         task_parameters["warmup_t_no_rand_velocity_change"] = defaults.warmup_t_no_rand_velocity_change
         task_parameters["warmup_t_no_rand_color_change"] = defaults.warmup_t_no_rand_color_change
     else:
@@ -103,9 +105,12 @@ def generate_video_dataset(
 
     samples = task.samples
     targets = task.targets
-
+    dict_metadata["min_t_color_change_after_bounce"] = task.min_t_color_change_after_bounce
+    dict_metadata["min_t_velocity_change_after_bounce"] = task.min_t_velocity_change_after_bounce
+    dict_metadata["min_t_color_change_after_random"] = task.min_t_color_change_after_random
+    dict_metadata["min_t_velocity_change_after_random"] = task.min_t_velocity_change_after_random
+    
     # Update metadata
-    dict_metadata["min_t_color_change"] = task.min_t_color_change
     output_data, output_samples, output_targets, timesteps, change_sums = shorten_trials_and_update_meta(
         params_flattened,
         samples,
@@ -252,14 +257,17 @@ def generate_data_df(
        )    
 
     if targets is not None:
-        # Add in the last color entered
+        # Add in the last color entered and its index
+        last_color, last_idx = taskutils.last_visible_color(
+            targets[:, :, :5],
+            dict_metadata["ball_radius"],
+            dict_metadata["mask_start"],
+            dict_metadata["mask_end"],
+            return_index=True,
+        )
+        df_trial_metadata["last_visible_color_idx"] = last_idx
         df_trial_metadata["last_visible_color"] = color_entered = 1 + np.argmax(
-            taskutils.last_visible_color(
-                targets[:, :, :5],
-                dict_metadata["ball_radius"],
-                dict_metadata["mask_start"],
-                dict_metadata["mask_end"],
-            ),
+            last_color,
             axis=1,
         )
         color_next = (color_entered % 3) + 1
@@ -405,36 +413,39 @@ def add_effective_stats_to_df(
     """Adds 'effective' statistics of each individual sequence which is based on
     the actual number of changes that occured, including the unobservable ones.
     
-    change_sums[:, 0] - Total velocity change Bounce - vcr
-    change_sums[:, 1] - Total velocity change Random - vcb
+    change_sums[:, 0] - Total velocity change Bounce - vcb
+    change_sums[:, 1] - Total velocity change Random - vcr
     change_sums[:, 2] - Total color change bounce - ccb
     change_sums[:, 3] - Total color change random - ccr
     """
     # Add observable changes
-    df_data["Bounces"] = change_sums[:, 0].astype(int)
-    df_data["Random Bounces"] = change_sums[:, 1].astype(int)
-    df_data["Color Change Bounce"] = change_sums[:, 2].astype(int)
-    df_data["Color Change Random"] = change_sums[:, 3].astype(int)
+    df_data["Bounces"] = vcb = change_sums[:, 0].astype(int)
+    df_data["Random Bounces"] = vcr =change_sums[:, 1].astype(int)
+    df_data["Color Change Bounce"] = ccb = change_sums[:, 2].astype(int)
+    df_data["Color Change Random"] = ccr = change_sums[:, 3].astype(int)
     
     # Number of random changes / length of the sequence minus timesteps where a
     # velocity change occured - Random color changes are not sampled when there
     # is a velocity change
-    df_data["PCCNVC_effective"] = (
-        change_sums[:, 3] /
-        (timesteps - change_sums[:, 0] - change_sums[:, 1])
-    )
+    df_data["PCCNVC_effective"] = ccr / (timesteps - vcb - vcr)
+    # (
+    #     change_sums[:, 3] /
+    #     (timesteps - change_sums[:, 0] - change_sums[:, 1])
+    # )
 
     # Number of bounce color changes / the number of velocity changes that
     # occured
-    df_data["PCCOVC_effective"] = (
-        change_sums[:, 2] /
-        (change_sums[:, 0] + change_sums[:, 1])
-    )
+    df_data["PCCOVC_effective"] = ccb / (vcb + vcr)
+    # (
+    #     change_sums[:, 2] /
+    #     (change_sums[:, 0] + change_sums[:, 1])
+    # )
 
     # Number of random velocity changes / length of sequence minus timesteps
     # where a wall bounce occured - random velocity changes are not sampled
     # when there is a wall bounce
-    df_data["PVC_effective"] = change_sums[:, 1] / timesteps
+    df_data["PVC_effective"] = vcr / (timesteps - vcb)
+    # change_sums[:, 1] / (timesteps - change_sums[:, 0])
     
     # Overall condition descriptors
     hzs = np.sort(df_data["PCCNVC"].unique())
@@ -611,7 +622,6 @@ if __name__ == "__main__":
     parser.add_argument("--dryrun", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     
-
     # Parse the arguments from the command line
     args = parser.parse_args()
     

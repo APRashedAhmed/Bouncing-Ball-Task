@@ -12,11 +12,10 @@ import torch
 from loguru import logger
 from PIL import Image, ImageDraw
 
-from bouncing_ball_task import index
+from bouncing_ball_task import index, defaults
 from bouncing_ball_task.constants import CONSTANT_COLOR, DEFAULT_COLORS
 from bouncing_ball_task.utils import gif, logutils, pyutils
 
-np.set_printoptions(precision=2, linewidth=150)
 
 class BouncingBallTask:
     valid_output_modes = {
@@ -95,8 +94,7 @@ class BouncingBallTask:
         valid_colors: Optional[Union[str, Iterable[Iterable[int]]]] = "default",
         num_colors: Optional[int] = None,
         mask_center: Optional[float] = 0.5,
-        mask_fraction: Optional[float] = 1
-        / 3,  # Has to be None for no grayzone
+        mask_fraction: Optional[float] = 1/3,  # None for no grayzone
         mask_color: Iterable[int] = (127, 127, 127),
         sample_mode: str = "parameter_array",
         target_mode: str = "parameter_array",
@@ -105,14 +103,16 @@ class BouncingBallTask:
         return_change_mode: str = "any",
         sequence_mode: str = "static",
         reset_after_iter: bool = False,
-        min_t_color_change: int = 5,
-        min_t_velocity_change: int = 5,
+        min_t_color_change_after_random: int = 5,
+        min_t_color_change_after_bounce: int = 5,
+        min_t_velocity_change_after_random: int = 5,
+        min_t_velocity_change_after_bounce: int = 5,
         warmup_t_no_rand_color_change: int = 3,
         warmup_t_no_rand_velocity_change: int = 3,
         forced_velocity_bounce_x: Optional[list[int]] = None,
         forced_velocity_bounce_y: Optional[list[int]] = None,
         forced_velocity_resamples: Optional[list[int]] = None,
-        forced_color_changes: Optional[list[int]] = None,
+        forced_color_changes: Optional[list[int]] = None,            
         seed: Optional[int] = None,
         initial_velocity_points_away_from_grayzone: bool = True,
         debug: bool = False,
@@ -140,8 +140,10 @@ class BouncingBallTask:
         self.ball_radius = ball_radius
         self.ball_diameter = 2 * self.ball_radius
         self.dt = dt
-        self.min_t_color_change = min_t_color_change
-        self.min_t_velocity_change = min_t_velocity_change
+        self.min_t_color_change_after_random = min_t_color_change_after_random
+        self.min_t_color_change_after_bounce = min_t_color_change_after_bounce
+        self.min_t_velocity_change_after_random = min_t_velocity_change_after_random
+        self.min_t_velocity_change_after_bounce = min_t_velocity_change_after_bounce
         self.warmup_t_no_rand_color_change = warmup_t_no_rand_color_change
         self.warmup_t_no_rand_velocity_change = warmup_t_no_rand_velocity_change
         self._color_mask_mode = None  # Setter initialization
@@ -1285,25 +1287,32 @@ class BouncingBallTask:
         color = next(color_sequence)
 
         # Pre-allocate arrays for random samples to reduce function calls
+        # Random values for velocity resampling
         rand_for_velocity = np.random.uniform(
             size=(self.sequence_length, self.batch_size)
         )
-
-        # Set initial steps to be 1.0
+        # Impose initial timesteps cannot have a random velocity change
         rand_for_velocity[:self.warmup_t_no_rand_velocity_change] = 1.0
-        
+
+        # Random signs for which dimension gets resampled
         rand_vel_lookup = np.array([[1, -1], [-1, 1]])
         rand_for_velocity_resample = rand_vel_lookup[
             np.random.randint(
                 0, 2, size=(self.sequence_length, self.batch_size)
             )
         ]
+
+        # Random values for whether color changes
+        # # Dim 0 - compared to PCCOVC
+        # # Dim 1 - compared to PCCNVC
         rand_for_color = np.random.uniform(
             size=(self.sequence_length, self.batch_size, 2)
         )
+        # Impose initial timesteps cannot change color
         rand_for_color[:self.warmup_t_no_rand_color_change] = 1.0
 
-        # Color change array to hold changes
+        # Color change array to hold changes at any timestep. Allows for color
+        # change delays
         color_change_array = np.zeros(
             (
                 self.sequence_length + self.color_change_delay.max(),
@@ -1312,6 +1321,10 @@ class BouncingBallTask:
             ),
             dtype=bool,
         )
+
+        # Preallocated arrays for combined velocity changes and change/no change
+        velocity_changes_combined = np.full((self.batch_size, 2), False)   
+        velocity_change_nochange = np.full((self.batch_size, 2), False)
 
         # Send out the initial conditions
         yield (
@@ -1345,7 +1358,7 @@ class BouncingBallTask:
             transitioning_mask = np.logical_and(
                 transitioning_overlap > self.transition_value,
                 transitioning_overlap < self.ball_radius * 2,
-            )            
+            )
 
             # Get all bounce indices including forced bounces
             indices_positions_with_bounce = np.logical_or(
@@ -1357,7 +1370,7 @@ class BouncingBallTask:
             velocity[indices_positions_with_bounce] *= -1
 
             # Which sequences had a bounce velocity change in either component
-            indices_velocity_bounce = np.logical_or(
+            indices_velocity_bounce = velocity_changes_combined[:, 0] = np.logical_or(
                 *indices_positions_with_bounce.T
             )
 
@@ -1367,7 +1380,7 @@ class BouncingBallTask:
             # Of those with no bounce, probabilistically resample velocity if
             # the ball isn't transitioning into the grayzone, or force a
             # resample if it is a forced resampling index
-            indices_velocity_resamples = np.logical_and(
+            indices_velocity_resamples = velocity_changes_combined[:, 1] = np.logical_and(
                 indices_velocity_no_bounce,
                 np.logical_or(
                     np.logical_and(
@@ -1383,30 +1396,37 @@ class BouncingBallTask:
                 t, indices_velocity_resamples
             ]
 
-            # Combine the velocity changes into one array
-            velocity_changes_combined = np.stack(
-                [indices_velocity_bounce, indices_velocity_resamples],
-                axis=-1,
-            )
+            # # Combine the velocity changes into one array
+            # velocity_changes_combined = np.stack(
+            #     [indices_velocity_bounce, indices_velocity_resamples],
+            #     axis=-1,
+            # )
 
             # Compile all bounce and resampled velocity changes into one vector
-            velocity_changes = velocity_changes_combined.any(axis=-1)
-
+            velocity_changes = velocity_change_nochange[:, 0] = np.logical_or(
+                indices_velocity_bounce,
+                indices_velocity_resamples,
+            )
+            # Combine into a vector that has change and no change
+            velocity_change_nochange[:, 1] = np.logical_not(velocity_changes)
+            
             # Set chance for random vel changes to be 0 for sequences where the
-            # vel changed
+            # vel changed due to a wall bounce or a random bounce accordingly
             rand_for_velocity[
-                t + 1 : t + self.min_t_velocity_change + 1, velocity_changes
+                t + 1 : t + self.min_t_velocity_change_after_bounce + 1,
+                indices_velocity_bounce
             ] = 1.0
-            
-            # Vector of sequences without a velocity change of either kind
-            no_velocity_changes = np.logical_not(velocity_changes)
-            
+            rand_for_velocity[
+                t + 1 : t + self.min_t_velocity_change_after_random + 1,
+                indices_velocity_resamples
+            ] = 1.0
+                        
             # Compute the combined indices where the color will change according
             # to whether the velocity changed or not
             color_changes_combined = np.logical_and(
-                np.stack([velocity_changes, no_velocity_changes], axis=-1),
-                rand_for_color[t]
-                <= self.probability_color_change_given_velocity,
+                velocity_change_nochange,
+                # np.stack([velocity_changes, no_velocity_changes], axis=-1),
+                rand_for_color[t] <= self.probability_color_change_given_velocity,
             )
 
             # Apply color changes to the timestep that gets affected by
@@ -1425,15 +1445,23 @@ class BouncingBallTask:
 
             # Select indices for where color will change
             self.color_change_indices = color_changes = np.logical_or(
-                color_change_array[t].any(axis=-1),
+                np.logical_or(*color_change_array[t].T),
+                # color_change_array[t].any(axis=-1),
                 self.forced_color_changes_array[t],
             )
-            
+
             # Set chance for random (no vel change) color changes to be 0 for
-            # sequences where the color changed for min_t_color_change time steps
-            # or that are transitioning into or out of the grayzone
+            # sequences where the color changed due to a bounce or another
+            # random change accordingly
             rand_for_color[
-                t + 1 : t + self.min_t_color_change + 1, color_changes, 1
+                t + 1 : t + self.min_t_color_change_after_bounce + 1,
+                color_change_array[t, :, 0],
+                1
+            ] = 1.0
+            rand_for_color[
+                t + 1 : t + self.min_t_color_change_after_random + 1,
+                color_change_array[t, :, 1],
+                1
             ] = 1.0
 
             # Step the color forward in time
@@ -1443,10 +1471,10 @@ class BouncingBallTask:
             position += velocity * self.dt
 
             yield (
-                position.copy(),
+                position.copy(), # Must yield copies
                 velocity.copy(),
                 color,
-                velocity_changes_combined,
+                velocity_changes_combined.copy(),
                 color_change_array[t],
             )
 
@@ -1986,298 +2014,20 @@ class BouncingBallTask:
 
 
 if __name__ == "__main__":
-
     # Initialize the ArgumentParser
-    parser = argparse.ArgumentParser(
-        description="Script for the bouncing ball task. Can be used to generate videos for humans or models."
-    )
+    parser = argparse.ArgumentParser()
+    parser = pyutils.add_dataclass_args(parser, defaults.TaskParameters)
 
-    # Add arguments based on the function signature
-    parser.add_argument(
-        "--size_frame",
-        nargs=2,
-        type=int,
-        default=(256, 256),
-        help="Frame size as two integers (width, height)",
-    )
-    parser.add_argument(
-        "--sequence_length",
-        type=int,
-        default=500,
-        help="Length of the sequence",
-    )
-    parser.add_argument(
-        "--ball_radius", type=int, default=10, help="Radius of the ball"
-    )
-    parser.add_argument(
-        "--dt", type=float, default=0.01, help="Time delta for updates"
-    )
-    parser.add_argument(
-        "--probability_velocity_change",
-        type=float,
-        default=0.0,
-        help="Probability of velocity change per step",
-    )
-    parser.add_argument(
-        "--probability_color_change_no_velocity_change",
-        type=float,
-        default=0.01,
-        help="Probability of color change without velocity change",
-    )
-    parser.add_argument(
-        "--probability_color_change_on_velocity_change",
-        type=float,
-        default=1.0,
-        help="Probability of color change on velocity change",
-    )
-    parser.add_argument(
-        "--initial_position",
-        nargs="+",
-        action="append",
-        type=float,
-        help="Initial position of the object, as a float iterable",
-    )
-    parser.add_argument(
-        "--same_xy_velocity",
-        action="store_true",
-        help="Flag to use the same velocity for X and Y directions",
-    )
-    parser.add_argument(
-        "--batch_size", type=int, default=2, help="Batch size for processing"
-    )
-    parser.add_argument(
-        "--batch_first",
-        action="store_true",
-        help="Whether the batch dimension comes first",
-    )
-    parser.add_argument(
-        "--initial_velocity",
-        nargs="+",
-        type=float,
-        help="Initial velocity of the object, as a float iterable",
-    )
-    parser.add_argument(
-        "--color_sampling",
-        type=str,
-        default="fixed",
-        help="Method of sampling colors",
-    )
-    parser.add_argument(
-        "--probability_initial_colors",
-        nargs="+",
-        type=float,
-        help="Probability of initial colors as a tuple",
-    )
-    parser.add_argument(
-        "--initial_color",
-        nargs="+",
-        type=int,
-        help="Initial color of the object, as int iterable",
-    )
-    parser.add_argument(
-        "--valid_colors",
-        type=str,
-        default="default",
-        help="Valid colors for the object, could be 'default' or a list of colors",
-    )
-    parser.add_argument("--num_colors", type=int, help="Number of valid colors")
-    parser.add_argument(
-        "--mask_center", type=float, default=0.5, help="Center of the mask zone"
-    )
-    parser.add_argument(
-        "--mask_fraction",
-        type=float,
-        default=1 / 3,
-        help="Fraction of the frame to be masked",
-    )
-    parser.add_argument(
-        "--mask_color",
-        nargs=3,
-        type=int,
-        default=(127, 127, 127),
-        help="Color of the mask zone as three integers (R, G, B)",
-    )
-    parser.add_argument(
-        "--sample_mode",
-        type=str,
-        default="parameter_array",
-        help="Mode of sampling parameters",
-    )
-    parser.add_argument(
-        "--target_mode",
-        type=str,
-        default="parameter_array",
-        help="Mode for setting target parameters",
-    )
-    parser.add_argument(
-        "--target_future_timestep",
-        type=int,
-        default=0,
-        help="Target future timestep for predictions",
-    )
-    parser.add_argument(
-        "--return_change",
-        action="store_true",
-        help="Flag to return changes in the output",
-    )
-    parser.add_argument(
-        "--return_change_mode",
-        type=str,
-        default="any",
-        help="Mode of return change",
-    )
-    parser.add_argument(
-        "--sequence_mode",
-        type=str,
-        default="static",
-        help="Mode of sequence generation",
-    )
-    parser.add_argument(
-        "--reset_after_iter",
-        action="store_true",
-        help="Flag to reset state after each iteration",
-    )
-    parser.add_argument(
-        "--min_t_color_change",
-        type=int,
-        default=20,
-        help="Minimum time between color changes",
-    )
-    parser.add_argument(
-        "--forced_velocity_bounce_x",
-        nargs="+",
-        type=int,
-        help="Forced X velocities on bounce as a list",
-    )
-    parser.add_argument(
-        "--forced_velocity_bounce_y",
-        nargs="+",
-        type=int,
-        help="Forced Y velocities on bounce as a list",
-    )
-    parser.add_argument(
-        "--forced_velocity_resamples",
-        nargs="+",
-        type=int,
-        help="Forced resampling of velocities as a list",
-    )
-    parser.add_argument(
-        "--forced_color_changes",
-        nargs="+",
-        type=int,
-        help="Forced color changes as a list",
-    )
-    parser.add_argument(
-        "--velocity_x_lower_multiplier",
-        type=float,
-        default=1 / 12.5,
-        help="Lower bound multiplier for the velocity sampling",
-    )
-    parser.add_argument(
-        "--velocity_x_upper_multiplier",
-        type=float,
-        default=1 / 7.5,
-        help="Upper bound multiplier for the velocity sampling",
-    )
-    parser.add_argument(
-        "--velocity_y_lower_multiplier",
-        type=float,
-        default=1 / 12.5,
-        help="Lower bound multiplier for the velocity sampling",
-    )
-    parser.add_argument(
-        "--velocity_y_upper_multiplier",
-        type=float,
-        default=1 / 7.5,
-        help="Upper bound multiplier for the velocity sampling",
-    )
-    parser.add_argument(
-        "--sample_velocity_discretely",
-        action="store_true",
-        help="Samples velocity values discretely",
-    )
-    parser.add_argument(
-        "--num_x_velocities",
-        type=int,
-        default=1,
-        help="Number of velocities to sample in x",
-    )
-    parser.add_argument(
-        "--num_y_velocities",
-        type=int,
-        default=2,
-        help="Number of velocities to sample in y",
-    )
-    parser.add_argument(
-        "--seed", type=int, help="Random seed for initialization"
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable debug mode"
-    )
-    parser.add_argument(
-        "--pccnvc_lower", type=float, help="Lower limit of PCCNVC"
-    )
-    parser.add_argument(
-        "--pccnvc_upper", type=float, help="Upper limit of PCCNVC"
-    )
-    parser.add_argument(
-        "--pccovc_lower", type=float, help="Lower limit of PCCOVC"
-    )
-    parser.add_argument(
-        "--pccovc_upper", type=float, help="Upper limit of PCCOVC"
-    )
-    parser.add_argument(
-        "--num_pccnvc", type=int, help="Number of PCCNVC instances"
-    )
-    parser.add_argument(
-        "--num_pccovc", type=int, help="Number of PCCOVC instances"
-    )
-    parser.add_argument(
-        "--color_change_bounce_delay",
-        type=int,
-        default=0,
-        help="Timesteps to delay a color change after a bounce",
-    )
-    parser.add_argument(
-        "--color_change_random_delay",
-        type=int,
-        default=0,
-        help="Timesteps to delay a random color change",
-    )
-    parser.add_argument(
-        "--duration",
-        type=int,
-        default=0,
-        help="Time (ms) between frames for viewing",
-    )
-    parser.add_argument("--multiplier", type=int, default=2, help="Multiplier")
-    parser.add_argument(
-        "--save_animation", action="store_true", help="Saves the animation"
-    )
-    parser.add_argument(
-        "--animate_target", action="store_true", help="Animates just the target"
-    )
-    parser.add_argument(
-        "--animate_sample", action="store_true", help="Animates just the sample"
-    )
-    parser.add_argument(
-        "--as_mp4", action="store_true", help="Saves the animation as an mp4"
-    )
-    parser.add_argument(
-        "--animate_as_sample",
-        action="store_true",
-        help="Animates the array as if its a sample video",
-    )
-    parser.add_argument(
-        "--skip_animation",
-        action="store_false",
-        help="Skips showing the animation",
-    )
-    parser.add_argument(
-        "--no_timestep",
-        action="store_false",
-        help="Removes the timestep from the videos",
-    )
+    parser.add_argument("--duration", type=int, default=0)
+    parser.add_argument("--multiplier", type=int, default=2)
+    parser.add_argument("--save_animation", action="store_true")
+    parser.add_argument("--animate_target", action="store_true")
+    parser.add_argument("--animate_sample", action="store_true")
+    parser.add_argument("--as_mp4", action="store_true")
+    parser.add_argument("--animate_as_sample", action="store_true")
+    parser.add_argument("--skip_animation", action="store_false")
+    parser.add_argument("--no_timestep", action="store_false")
+    parser.add_argument("--mode", type=str, default="original")
 
     # Parse the arguments from the command line
     args, remaining_argv = parser.parse_known_args()
@@ -2285,72 +2035,22 @@ if __name__ == "__main__":
 
     logger = logutils.configure_logger(verbose=args.debug)
 
-    # Instantiate BouncingBallTask with all arguments
-    task = BouncingBallTask(
-        size_frame=args.size_frame,
-        sequence_length=args.sequence_length,
-        ball_radius=args.ball_radius,
-        dt=args.dt,
-        probability_velocity_change=args.probability_velocity_change,
-        probability_color_change_no_velocity_change=args.probability_color_change_no_velocity_change,
-        probability_color_change_on_velocity_change=args.probability_color_change_on_velocity_change,
-        initial_position=args.initial_position,
-        same_xy_velocity=args.same_xy_velocity,
-        batch_size=args.batch_size,
-        batch_first=args.batch_first,
-        initial_velocity=args.initial_velocity,
-        velocity_x_lower_multiplier=args.velocity_x_lower_multiplier,
-        velocity_x_upper_multiplier=args.velocity_x_upper_multiplier,
-        velocity_y_lower_multiplier=args.velocity_y_lower_multiplier,
-        velocity_y_upper_multiplier=args.velocity_y_upper_multiplier,
-        color_sampling=args.color_sampling,
-        probability_initial_colors=args.probability_initial_colors,
-        initial_color=args.initial_color,
-        valid_colors=args.valid_colors,
-        num_colors=args.num_colors,
-        mask_center=args.mask_center,
-        mask_fraction=args.mask_fraction,
-        mask_color=args.mask_color,
-        sample_mode=args.sample_mode,
-        target_mode=args.target_mode,
-        target_future_timestep=args.target_future_timestep,
-        return_change=args.return_change,
-        return_change_mode=args.return_change_mode,
-        sequence_mode=args.sequence_mode,
-        reset_after_iter=args.reset_after_iter,
-        min_t_color_change=args.min_t_color_change,
-        forced_velocity_bounce_x=args.forced_velocity_bounce_x,
-        forced_velocity_bounce_y=args.forced_velocity_bounce_y,
-        forced_velocity_resamples=args.forced_velocity_resamples,
-        forced_color_changes=args.forced_color_changes,
-        seed=args.seed,
-        debug=args.debug,
-        pccnvc_lower=args.pccnvc_lower,
-        pccnvc_upper=args.pccnvc_upper,
-        pccovc_lower=args.pccovc_lower,
-        pccovc_upper=args.pccovc_upper,
-        num_pccnvc=args.num_pccnvc,
-        num_pccovc=args.num_pccovc,
-        sample_velocity_discretely=args.sample_velocity_discretely,
-        num_x_velocities=args.num_x_velocities,
-        num_y_velocities=args.num_y_velocities,
-        color_change_bounce_delay=args.color_change_bounce_delay,
-        color_change_random_delay=args.color_change_random_delay,
-    )
+    task_parameters = {
+        key: getattr(args, key) for key in defaults.TaskParameters.keys
+    }
+    
+    task = BouncingBallTask(**task_parameters)    
 
-    print(task)
-
-    samples, targets = zip(*[x for x in task])
-    samples = np.array(samples).transpose(1, 0, 2)
-    targets = np.array(targets).transpose(1, 0, 2)
+    samples = task.samples
+    targets = task.targets
 
     if args.animate_sample:
         output_to_animate = samples[0]
         args.animate_as_sample = True
     elif args.animate_target:
-        output_to_animate = targets[0]
+        output_to_animate = targets[0, :, :5]
     else:
-        output_to_animate = (samples[0], targets[0])
+        output_to_animate = (samples[0], targets[0, :, :5])
 
     paths = task.animate(
         output_to_animate,
@@ -2364,6 +2064,7 @@ if __name__ == "__main__":
         return_path=args.save_animation,
         as_mp4=args.as_mp4,
         animate_as_sample=args.animate_as_sample,
+        mode=args.mode,
     )
     if args.save_animation:
         print(f"Saving videos to {paths}")
