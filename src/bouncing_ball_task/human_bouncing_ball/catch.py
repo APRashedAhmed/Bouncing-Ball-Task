@@ -17,7 +17,8 @@ def generate_catch_trials(
     mask_start = dict_meta["mask_start"]
     size_x = dict_meta["size_x"]
     size_y = dict_meta["size_y"]
-    num_pos_endpoints = dict_meta["num_pos_endpoints"]
+    num_pos_x_endpoints = dict_meta["num_pos_x_endpoints"]
+    num_pos_y_endpoints = dict_meta["num_pos_y_endpoints"]
     final_velocity_x_magnitude = dict_meta["final_velocity_x_magnitude"]
     final_velocity_y_magnitude_linspace = dict_meta["final_velocity_y_magnitude_linspace"]
     pccnvc_linspace = dict_meta["pccnvc_linspace"]
@@ -45,12 +46,12 @@ def generate_catch_trials(
     final_x_position = pyutils.alternating_ab_sequence(
         np.linspace(
             *nongrayzone_left_x_range,
-            num_pos_endpoints,
+            num_pos_x_endpoints,
             endpoint=True,
         ),
         np.linspace(
             *nongrayzone_right_x_range,
-            num_pos_endpoints,
+            num_pos_x_endpoints,
             endpoint=True,
         ),
         num_trials,
@@ -60,7 +61,7 @@ def generate_catch_trials(
         np.linspace(
             border_tolerance_outer * ball_radius,
             size_y - border_tolerance_outer * ball_radius,
-            2 * num_pos_endpoints,
+            num_pos_y_endpoints,
             endpoint=True,
         ),
         num_trials,
@@ -102,10 +103,6 @@ def generate_catch_trials(
             final_color,
             pccnvc,
             pccovc,
-            [
-                pvc,
-            ]
-            * num_trials,
             [pvc,] * num_trials,
             [[],] * num_trials,
             [[],] * num_trials,

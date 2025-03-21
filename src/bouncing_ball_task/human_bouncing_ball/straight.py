@@ -17,7 +17,9 @@ def generate_straight_trials(
     mask_start = dict_meta["mask_start"]
     size_x = dict_meta["size_x"]
     size_y = dict_meta["size_y"]
-    num_pos_endpoints_straight = dict_meta["num_pos_endpoints_straight"]
+    num_pos_x_endpoints = dict_meta["num_pos_x_endpoints"]
+    num_pos_y_endpoints = dict_meta["num_pos_y_endpoints"]
+    y_pos_multiplier = dict_meta["y_pos_multiplier"]    
     final_velocity_x_magnitude = dict_meta["final_velocity_x_magnitude"]
     final_velocity_y_magnitude_linspace = dict_meta["final_velocity_y_magnitude_linspace"]
     pccnvc_linspace = dict_meta["pccnvc_linspace"]
@@ -31,12 +33,12 @@ def generate_straight_trials(
     
     dict_meta = {"num_trials": num_trials}
 
-    multipliers = np.arange(1, num_pos_endpoints_straight + 1)
+    multipliers = np.arange(1, num_pos_x_endpoints + 1)
     time_x_diff = diff / (final_velocity_x_magnitude * dt)
     position_y_diff = final_velocity_y_magnitude_linspace * time_x_diff * dt
 
     indices_time_in_grayzone = pyutils.repeat_sequence(
-        np.arange(num_pos_endpoints_straight),
+        np.arange(num_pos_x_endpoints),
         num_trials,
         shuffle=False,
     ).astype(int)
@@ -44,11 +46,11 @@ def generate_straight_trials(
     # Binary arrays for whether the ball enters the grayzone from the left or
     # right and if it is going towards the top or bottom
     sides_left_right = pyutils.repeat_sequence(
-        np.array([0, 1] * num_pos_endpoints_straight),
+        np.array([0, 1] * num_pos_x_endpoints),
         num_trials,
     ).astype(int)
     sides_top_bottom = pyutils.repeat_sequence(
-        np.array([0, 1] * num_pos_endpoints_straight),
+        np.array([0, 1] * num_pos_x_endpoints),
         num_trials,
     ).astype(int)
 
@@ -60,7 +62,7 @@ def generate_straight_trials(
 
     # Precompute indices to sample the velocities from
     indices_velocity_y_magnitude = pyutils.repeat_sequence(
-        np.array(list(range(num_y_velocities)) * num_pos_endpoints_straight),
+        np.array(list(range(num_y_velocities)) * num_pos_x_endpoints),
         num_trials,
     ).astype(int)
 
@@ -82,23 +84,23 @@ def generate_straight_trials(
                 np.ones_like(y_distance_traversed)
                 * 2
                 * ball_radius,
-                size_y - y_distance_traversed - 4 * ball_radius,
-                2 * num_pos_endpoints_straight,
+                size_y - y_distance_traversed - y_pos_multiplier * ball_radius,
+                num_pos_y_endpoints,
                 endpoint=True,
                 axis=-1,
             ),
             # Bottom
             np.linspace(
                 size_y - 2 * ball_radius,
-                y_distance_traversed + 4 * ball_radius,
-                2 * num_pos_endpoints_straight,
+                y_distance_traversed + y_pos_multiplier * ball_radius,
+                num_pos_y_endpoints,
                 endpoint=True,
                 axis=-1,
             ),
         ]
     )
 
-    # This is shape [2 x 2 x num_vel x num_pos_endpoints_straight x 2*num_pos_endpoints_straight]
+    # This is shape [2 x 2 x num_vel x num_pos_x_endpoints x 2*num_pos_x_endpoints]
     # [left/right, top/bottom, each vel, num x positions, num y pos per x pos]
     final_y_positions = dict_meta[
         "final_y_positions"

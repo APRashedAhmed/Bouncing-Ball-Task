@@ -1,14 +1,16 @@
 """Functions for "basic python", not related to specific packages or goals."""
 import os
+import re
 import ast
 import inspect
 import shutil
 import tempfile
 import random
+import dataclasses
 from collections.abc import Iterable
 from functools import partial, wraps
 from pathlib import Path
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Tuple, Union, get_args
 
 import numpy as np
 from loguru import logger
@@ -632,22 +634,215 @@ def create_sequence_splits(seq, total=None):
         
     return [val / sum(result) for val in result]
 
-# Example usage:
-# For input [1, 1, -2, -1, -1] with total = 10:
-# Fixed values: 1 and 1 (sum = 2), remainder = 8.
-# Wildcard weights: 2, 1, 1 (total weight = 4) leading to replacements: 8*2/4=4, 8*1/4=2, 8*1/4=2.
-# If norm is False, result is [1, 1, 4, 2, 2]. If norm is True, result is [0.1, 0.1, 0.4, 0.2, 0.2].
 
-# Test examples
-if __name__ == "__main__":
-    # Example 1: normalized splits
-    splits_norm = create_sequence_splits([1, 1, -2, -1, -1], total=10, norm=True)
-    print("Normalized splits:", splits_norm)  # Expected: [0.1, 0.1, 0.4, 0.2, 0.2]
+def get_dataclasses(namespace: dict = None):
+    if namespace is None:
+        namespace = globals()
+    
+    dcs = {}
+    for obj in list(namespace.values()):
+        # Check if obj is a type (i.e. a class) and is a dataclass.
+        if isinstance(obj, type) and dataclasses.is_dataclass(obj):
+            if not obj.__name__.startswith("_"):
+                try:
+                    # Try to instantiate without arguments (this works if all fields have defaults).
+                    obj.asdict = dataclasses.asdict(obj())
+                    obj.keys = obj.asdict.keys()
+                    obj.values = obj.asdict.values()
+                    obj.items = obj.asdict.items()
+                    
+                    name = s2 = re.sub(r'([a-z])([A-Z])', r'\1_\2', obj.__name__).lower()
+                    dcs[name] = obj
+                except TypeError:
+                    # If the dataclass requires parameters, skip it.
+                    continue
+    namespace.update(dcs)
+    return dcs
 
-    # Example 2: raw splits
-    splits_raw = create_sequence_splits([1, 1, None, -1, -1], total=10, norm=False)
-    print("Raw splits:", splits_raw)  # None becomes -1 then processed as wildcard
 
-    # Example 3: when no wildcards are provided, just normalized:
-    splits_fixed = create_sequence_splits([0.3, 0.3, 0.2], norm=True)
-    print("Fixed normalized splits:", splits_fixed)
+def register_defaults(module_globals):
+    default_dcs = get_dataclasses(module_globals)
+    module_globals["_default_dcs"] = default_dcs
+    
+    def __getattr__(name: str):
+        for _, instance in default_dcs.items():
+            if hasattr(instance, name):
+                return getattr(instance, name)
+        raise AttributeError(f"module {module_globals.get('__name__', 'unknown')} has no attribute {name}")
+    
+    def __dir__():
+        base = set(module_globals.keys())
+        extra = set()
+        for _, instance in default_dcs.items():
+            # If the instance is a dataclass, use its __dataclass_fields__ keys.
+            if hasattr(instance, "__dataclass_fields__"):
+                extra.update(instance.__dataclass_fields__.keys())
+        base_new = sorted(base.union(extra))
+        
+        return base_new
+
+    # import ipdb; ipdb.set_trace()    
+    module_globals["__getattr__"] = __getattr__
+    module_globals["__dir__"] = __dir__
+
+
+def parse_bool(x):
+    """Convert common boolean string representations to a boolean."""
+    if isinstance(x, bool):
+        return x
+    x_lower = str(x).lower()
+    if x_lower in ("true", "1", "yes"):
+        return True
+    elif x_lower in ("false", "0", "no"):
+        return False
+    else:
+        raise argparse.ArgumentTypeError(f"Expected boolean value, got {x}")
+
+def wrap_type_with_none_check(type_func):
+    """
+    Wrap a conversion function so that if the input string equals "None"
+    (case-insensitive), it returns Python's None.
+    """
+    def wrapped(x):
+        if isinstance(x, str) and x.lower() == "none":
+            return None
+        return type_func(x)
+    return wrapped
+
+
+def get_underlying_type(field_obj, default_value):
+    if field_obj.type is not None:
+        # Check if field_type is a Union that includes NoneType.
+        if hasattr(field_obj.type, "__origin__"):
+            if field_obj.type.__origin__ is Union:
+                args = get_args(field_obj.type)
+                non_none = [arg for arg in args if arg is not type(None)]
+                if len(non_none) == 1:
+                    return non_none[0]
+                
+            else:
+                return field_obj.type.__origin__
+        else:
+            return field_obj.type
+            
+    elif default_value is not None:
+        return type(default_value)
+    else:
+        # Fallback to str if no specific type can be determined.
+        return str
+
+def add_dataclass_args(parser, instance):
+    if not dataclasses.is_dataclass(instance):
+        raise ValueError("The provided instance is not a dataclass.")
+    
+    for field_name, field_obj in instance.__dataclass_fields__.items():
+        option_str = f"--{field_name}"
+        # Check if this option has already been added.
+        if option_str in parser._option_string_actions:
+            # Option already exists; skip (or you could log a warning).
+            continue        
+
+        # Determine default value. If no default is present, skip the field.
+        if field_obj.default is not dataclasses.MISSING:
+            default_value = field_obj.default
+        elif field_obj.default_factory is not dataclasses.MISSING:
+            default_value = field_obj.default_factory()
+        else:
+            continue
+        
+
+        # # Determine the type conversion function.
+        # # Prefer the type hint if provided; otherwise, use type(default_value)
+        # if field_obj.type is not None:
+        #     try:
+        #         base_type = field_obj.type.__origin__
+        #     except AttributeError:
+        #         # In case of non-typing types (such as <class 'int'>, for instance)
+        #         base_type = field_obj.type
+        # else:
+        #     base_type = type(default_value)
+
+       # Use the field annotation to get the conversion type.
+        base_type = get_underlying_type(field_obj, default_value)
+                        
+        # if field_name == "sequence_mode":
+        #     import ipdb; ipdb.set_trace()
+            
+        if base_type == bool:
+            conv_type = wrap_type_with_none_check(parse_bool)
+        elif base_type in (tuple, list):
+            def parse_iterable(s):
+                try:
+                    v = ast.literal_eval(s)
+                    if isinstance(v, (tuple, list)):
+                        return v
+                    else:
+                        raise argparse.ArgumentTypeError(f"Expected tuple or list, got {v}")
+                except Exception as e:
+                    raise argparse.ArgumentTypeError(f"Could not parse {s} as tuple/list: {e}")
+            conv_type = wrap_type_with_none_check(parse_iterable)
+        # elif default_value is None:
+        #     conv_type = wrap_type_with_none_check(str)
+        else:
+            conv_type = wrap_type_with_none_check(base_type)
+        
+        # Add the argument with a -- prefix.
+        parser.add_argument(option_str,
+                            type=conv_type,
+                            default=default_value,
+                            help=f"Default: {default_value}")
+    return parser
+
+
+# def parse_bool(x):
+#     if isinstance(x, bool):  # already a bool, no conversion needed
+#         return x
+#     x_lower = str(x).lower()
+#     if x_lower in ('true', '1', 'yes'):
+#         return True
+#     elif x_lower in ('false', '0', 'no'):
+#         return False
+#     else:
+#         raise argparse.ArgumentTypeError(f"Expected a boolean value, got {x}")
+
+# def wrap_none_check(type_func):
+#     def wrapped(x):
+#         if isinstance(x, str) and x.lower() in {"none", "null", "nan"}:
+#             return None
+#         return type_func(x)
+#     return wrapped
+
+# def add_args_from_dict(parser, param_dict):
+#     for key, value in param_dict.items():
+#         option_str = f"--{key}"
+#         # Check if this option has already been added.
+#         if option_str in parser._option_string_actions:
+#             # Option already exists; skip (or you could log a warning).
+#             continue
+
+#         # Determine the argument type.
+#         # Choose the conversion function.
+#         if isinstance(value, bool):
+#             arg_type = wrap_none_check(parse_bool)
+#         elif isinstance(value, (tuple, list)):
+#             # Define a custom parser for iterables.
+#             def parse_iterable(s):
+#                 try:
+#                     v = ast.literal_eval(s)
+#                     if isinstance(v, (tuple, list)):
+#                         return v
+#                     else:
+#                         raise argparse.ArgumentTypeError(f"Expected a tuple or list, got {v}")
+#                 except Exception as e:
+#                     raise argparse.ArgumentTypeError(f"Could not parse {s} as tuple/list: {e}")
+#             arg_type = wrap_none_check(parse_iterable)
+#         elif value is None:
+#             arg_type = wrap_none_check(str)
+#         else:
+#             # Use the type of the default (or str if the default is None).
+#             base_type = type(value) if value is not None else str
+#             arg_type = wrap_none_check(base_type)
+
+#         parser.add_argument(option_str, type=arg_type, default=value)
+        
+#     return parser

@@ -22,6 +22,7 @@ from bouncing_ball_task.constants import (
 )
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
 from bouncing_ball_task.utils import logutils, pyutils, taskutils, htaskutils
+from bouncing_ball_task.human_bouncing_ball import defaults
 from bouncing_ball_task.human_bouncing_ball.catch import generate_catch_trials
 from bouncing_ball_task.human_bouncing_ball.straight import generate_straight_trials
 from bouncing_ball_task.human_bouncing_ball.bounce import generate_bounce_trials
@@ -38,20 +39,23 @@ trial_types = tuple(key for key, _ in dict_trial_type_generation_funcs.items())
 
 
 def generate_video_dataset(
-    human_video_parameters,
+    human_dataset_parameters,
     task_parameters,    
     shuffle=True,
     validate=True,
-    num_blocks=None,
-    variable_length=True
 ):
+    num_blocks = human_dataset_parameters["num_blocks"]
+    total_videos = human_dataset_parameters["total_videos"]
+    if num_blocks is not None and total_videos is not None:
+        assert total_videos >= num_blocks
+    
     *params, dict_metadata = generate_video_parameters(
-        **human_video_parameters
+        **human_dataset_parameters
     )
     # Assuming each parameter in params is a list of tuples, and you want to flatten and separate them
     params_flattened = list(itertools.chain.from_iterable(params))
     num_params = len(params_flattened)
-
+    
     # Shuffle if asked
     if shuffle:
         random.shuffle(params_flattened)
@@ -61,7 +65,6 @@ def generate_video_dataset(
     )
 
     # Grab relevant variables
-    max_length = dict_metadata["video_length_max_f"]
     task_parameters = copy.deepcopy(task_parameters)
     task_parameters["initial_position"] = positions
     task_parameters["initial_velocity"] = velocities
@@ -71,26 +74,31 @@ def generate_video_dataset(
     task_parameters["probability_color_change_on_velocity_change"] = pccovcs
     task_parameters["forced_velocity_bounce_x"] = fxvc
     task_parameters["forced_velocity_bounce_y"] = fyvc
+    task_parameters["batch_size"] = len(positions)
+    task_parameters["sample_mode"] = defaults.sample_mode
+    task_parameters["target_mode"] = defaults.target_mode
+    task_parameters["return_change"] = defaults.return_change
+    task_parameters["return_change_mode"] = defaults.return_change_mode
+    task_parameters["sequence_mode"] = defaults.sequence_mode
     task_parameters["pccnvc_lower"] = None
     task_parameters["pccnvc_upper"] = None
     task_parameters["pccovc_lower"] = None
     task_parameters["pccovc_upper"] = None
-    task_parameters["batch_size"] = len(positions)
-    task_parameters["sequence_mode"] = "reverse"
-    task_parameters["target_future_timestep"] = 0
-    task_parameters["sequence_length"] = max_length
-    task_parameters["sample_velocity_discretely"] = True
-    task_parameters["initial_velocity_points_away_from_grayzone"] = True
-    task_parameters["initial_timestep_is_changepoint"] = False
-    task_parameters["sample_mode"] = "parameter_array"
-    task_parameters["target_mode"] = "parameter_array"
-    task_parameters["return_change"] = True
-    task_parameters["return_change_mode"] = "source"
-    task_parameters["warmup_t_no_rand_velocity_change"] = 20
-    task_parameters["warmup_t_no_rand_color_change"] = max(
-        3, task_parameters.get("warmup_t_no_rand_color_change", 0)
-    )
     
+    # Apply standardized params to task_parameters if requested
+    if human_dataset_parameters["standard"]:
+        task_parameters["target_future_timestep"] = defaults.target_future_timestep
+        task_parameters["sequence_length"] = dict_metadata["video_length_max_f"]
+        task_parameters["sample_velocity_discretely"] = defaults.sample_velocity_discretely
+        task_parameters["initial_velocity_points_away_from_grayzone"] = defaults.initial_velocity_points_away_from_grayzone
+        task_parameters["initial_timestep_is_changepoint"] = defaults.initial_timestep_is_changepoint
+        task_parameters["min_t_color_change"] = defaults.min_t_color_change
+        task_parameters["min_t_velocity_change"] = defaults.min_t_velocity_change
+        task_parameters["warmup_t_no_rand_velocity_change"] = defaults.warmup_t_no_rand_velocity_change
+        task_parameters["warmup_t_no_rand_color_change"] = defaults.warmup_t_no_rand_color_change
+    else:
+        logger.info("Not generating data using standardized parameters")
+        
     task = BouncingBallTask(**task_parameters)
 
     samples = task.samples
@@ -102,15 +110,15 @@ def generate_video_dataset(
         params_flattened,
         samples,
         targets,
-        human_task_parameters["duration"],
-        variable_length=variable_length,
+        human_dataset_parameters["duration"],
+        variable_length=human_dataset_parameters["variable_length"],
     )
-
+    
     df_data, dict_metadata = generate_data_df(
         output_data,
         dict_metadata,
         targets,
-        num_blocks=num_blocks,
+        num_blocks=human_dataset_parameters["num_blocks"],
     )
 
     df_data = add_effective_stats_to_df(df_data, timesteps, change_sums)
@@ -123,141 +131,43 @@ def generate_video_dataset(
 
 
 def generate_video_parameters(
-    size_frame: Iterable[int] = (256, 256),
-    ball_radius: int = 10,
-    dt: float = 0.1,
-    video_length_min_s: Optional[float] = 8.0, # seconds
-    fixed_video_length: Optional[int] = None, # frames
-    duration: Optional[int] = 45, # ms
-    total_dataset_length: Optional[int] = 35,  # minutes
-    mask_center: float = 0.5,
-    mask_fraction: float = 1 / 3,
-    num_pos_endpoints: int = 3,
-    num_pos_bounce: int = 1,
-    velocity_lower: float = 1 / 12.5,
-    velocity_upper: float = 1 / 7.5,
-    num_y_velocities: int = 2,
-    pccnvc_lower: float = 0.00575,
-    pccnvc_upper: float = 0.0575,
-    pccovc_lower: float = 0.025,
-    pccovc_upper: float = 0.975,
-    num_pccnvc: int = 2,
-    num_pccovc: int = 3,
-    pvc: float = 0.0,
-    border_tolerance_outer: float = 1.25,
-    border_tolerance_inner: float = 1.0,
-    trial_type_split: float = (0.05, -1, -1, -1),
-    bounce_offset: float = 2 / 5,
-    total_videos: Optional[int] = None,
-    exp_scale: float = 1.0,  # seconds
-    print_stats: bool = True,
-    use_logger: bool = True,
-    seed: Optional[int] = None,
+    size_frame: Iterable[int] = defaults.size_frame,
+    ball_radius: int = defaults.ball_radius,
+    dt: float = defaults.dt,
+    video_length_min_s: Optional[float] = defaults.video_length_min_s, # seconds
+    fixed_video_length: Optional[int] = defaults.fixed_video_length, # frames
+    duration: Optional[int] = defaults.duration, # ms
+    total_dataset_length: Optional[int] = defaults.total_dataset_length,  # minutes
+    mask_center: float = defaults.mask_center,
+    mask_fraction: float = defaults.mask_fraction,
+    num_pos_x_endpoints: int = defaults.num_pos_x_endpoints,
+    num_pos_y_endpoints: int = defaults.num_pos_y_endpoints,
+    y_pos_multiplier: int = defaults.y_pos_multiplier,
+    velocity_lower: float = defaults.velocity_lower,
+    velocity_upper: float = defaults.velocity_upper,
+    num_y_velocities: int = defaults.num_y_velocities,
+    pccnvc_lower: float = defaults.pccnvc_lower,
+    pccnvc_upper: float = defaults.pccnvc_upper,
+    pccovc_lower: float = defaults.pccovc_lower,
+    pccovc_upper: float = defaults.pccovc_upper,
+    num_pccnvc: int = defaults.num_pccnvc,
+    num_pccovc: int = defaults.num_pccovc,
+    pvc: float = defaults.pvc,
+    border_tolerance_outer: float = defaults.border_tolerance_outer,
+    border_tolerance_inner: float = defaults.border_tolerance_inner,
+    trial_type_split: float = defaults.trial_type_split,
+    bounce_offset: float = defaults.bounce_offset,
+    total_videos: Optional[int] = defaults.total_videos,
+    exp_scale: float = defaults.exp_scale,  # seconds
+    print_stats: bool = defaults.print_stats,
+    use_logger: bool = defaults.use_logger,
+    num_pos_x_linspace_bounce: int = defaults.num_pos_x_linspace_bounce,
+    idx_linspace_bounce: int = defaults.idx_linspace_bounce,
+    bounce_timestep: int = defaults.bounce_timestep,
+    repeat_factor: int = defaults.repeat_factor,
+    seed: Optional[int] = defaults.seed,
+    **kwargs,
 ):
-    """Generates parameters for video simulations of a bouncing ball in a
-    bounded frame.
-
-    Parameters
-    ----------
-    size_frame : Iterable[int], default=(256, 256)
-        Dimensions of the video frame (width, height).
-
-    ball_radius : int, default=10
-        Radius of the ball in pixels.
-
-    dt : float, default=0.1
-        Time step for the simulation in seconds.
-
-    video_length_min_s : Optional[float], default=8.0
-        Length of each video in seconds.
-
-    fixed_video_length : Optional[int], default=None
-    	Imposes every video have a fixed length of `fixed_video_length` frames.
-    
-    duration : Optional[int], default=45
-        Duration of each video segment within the total video in frames.
-
-    total_dataset_length : Optional[int], default=35
-        Total length of the dataset in minutes.
-
-    mask_center : float, default=0.5
-        Center position of the mask as a fraction of frame height.
-
-    mask_fraction : float, default=1/3
-        Fraction of the frame height covered by the mask.
-
-    mask_center : float, default=0.5
-        The center x position of the mask.
-
-    num_pos_endpoints : int, default=5
-        Number of positive endpoints for the ball trajectory.
-
-    velocity_lower : float, default=1/12.5
-        Lower limit for the ball's velocity.
-
-    velocity_upper : float, default=1/7.5
-        Upper limit for the ball's velocity.
-
-    num_y_velocities : int, default=2
-        Number of distinct velocities in the y-direction.
-
-    pccnvc_lower : float, default=0.01
-        Lower probability of a color change not accompanying a velocity change.
-
-    pccnvc_upper : float, default=0.045
-        Upper probability of a color change not accompanying a velocity change.
-
-    pccovc_lower : float, default=0.1
-        Lower probability of a color change on a velocity change.
-
-    pccovc_upper : float, default=0.9
-        Upper probability of a color change on a velocity change.
-
-    num_pccnvc : int, default=2
-        Number of instances where a color change does not accompany a velocity
-        change.
-
-    num_pccovc : int, default=3
-        Number of instances where a color change accompanies a velocity change.
-
-    pvc : float, default=0.0
-        Probability of a velocity change occurring independently.
-
-    border_tolerance_outer : float, default=2.0
-        Tolerance for the ball touching the outer border of the frame.
-
-    border_tolerance_inner : float, default=1.0
-        Tolerance for the ball touching the inner border of the frame.
-
-    trial_type_split : float, default=0.5
-        Relative proportions of the trial types
-
-    bounce_offset : float, default=0.8
-        Offset applied to the ball's bounce direction, expressed as a fraction
-        of the ball radius.
-
-    total_videos : Optional[int], default=None
-        Total number of videos to generate, if specified.
-
-    exp_scale : float, default=1.0
-        Scale factor applied to exponential distributions for time-related
-        parameters.
-
-    print_stats : bool, default=True
-    	Print stats for each trial type.
-
-    use_logger : bool, default=True,
-    	Use the logger methods or print function to display stats
-
-    seed : Optional[int], default=None
-    	Random seed to use for generating videos
-
-    Returns
-    -------
-    tuple : (trials_catch, trials_straight, trials_bounce, meta)
-        A tuple containing a list of video parameters and a dictionary
-        containing metadata about the dataset.
-    """
     # Set the seed
     seed = pyutils.set_global_seed(seed)
     
@@ -293,11 +203,17 @@ def generate_video_parameters(
         mask_fraction,
         mask_center,
         bounce_offset,
-        num_pos_endpoints,
-        num_pos_bounce,
+        num_pos_x_endpoints,
+        num_pos_y_endpoints,
+        y_pos_multiplier,
         border_tolerance_outer,
         border_tolerance_inner,
+        num_pos_x_linspace_bounce,
+        idx_linspace_bounce,
+        bounce_timestep,
+        repeat_factor,        
         seed,
+        **kwargs,
     )
 
     if print_stats:
@@ -390,13 +306,13 @@ def shorten_trials_and_update_meta(params_flattened, samples, targets, duration,
         )
     ):
         # Grab the relevant params
-        position, velocity, color, pccnvc, pccovc, pvc, meta_trial = param
+        position, velocity, color, pccnvc, pccovc, pvc, fxvc, fyvc, meta_trial = param
         length = meta_trial["length"]
 
         if variable_length:
             # Shorten the videos to the specified length
-            output_samples.append(sample := sample[max_length - length :])
-            output_targets.append(target := target[max_length - length :])
+            output_samples.append(sample := sample[-length:])
+            output_targets.append(target := target[-length:])
             
         # Update the metadata for the trial
         meta_trial.update(
@@ -413,7 +329,7 @@ def shorten_trials_and_update_meta(params_flattened, samples, targets, duration,
             }
         )
         output_data.append(meta_trial)
-        
+
     if variable_length:
         timesteps = np.array([target.shape[0] for target in output_targets])
         change_sums = np.array([target.sum(axis=0) for target in output_targets])[:, -4:]
@@ -486,21 +402,44 @@ def add_effective_stats_to_df(
         timesteps,
         change_sums,
 ):
-    df_data["PCCNVC_effective"] = (
-        change_sums[:, -1] /
-        (timesteps - change_sums[:, -4] - change_sums[:, -3])
-    )
-    df_data["PCCOVC_effective"] = change_sums[:, -2] / change_sums[:, -4]
-    df_data["PVC_effective"] = change_sums[:, -3] / timesteps
-    df_data["Bounces"] = change_sums[:, -4].astype(int)
-    df_data["Random Bounces"] = change_sums[:, -3].astype(int)
-    df_data["Color Change Bounce"] = change_sums[:, -2].astype(int)
-    df_data["Color Change Random"] = change_sums[:, -1].astype(int)
+    """Adds 'effective' statistics of each individual sequence which is based on
+    the actual number of changes that occured, including the unobservable ones.
+    
+    change_sums[:, 0] - Total velocity change Bounce - vcr
+    change_sums[:, 1] - Total velocity change Random - vcb
+    change_sums[:, 2] - Total color change bounce - ccb
+    change_sums[:, 3] - Total color change random - ccr
+    """
     # Add observable changes
+    df_data["Bounces"] = change_sums[:, 0].astype(int)
+    df_data["Random Bounces"] = change_sums[:, 1].astype(int)
+    df_data["Color Change Bounce"] = change_sums[:, 2].astype(int)
+    df_data["Color Change Random"] = change_sums[:, 3].astype(int)
+    
+    # Number of random changes / length of the sequence minus timesteps where a
+    # velocity change occured - Random color changes are not sampled when there
+    # is a velocity change
+    df_data["PCCNVC_effective"] = (
+        change_sums[:, 3] /
+        (timesteps - change_sums[:, 0] - change_sums[:, 1])
+    )
 
+    # Number of bounce color changes / the number of velocity changes that
+    # occured
+    df_data["PCCOVC_effective"] = (
+        change_sums[:, 2] /
+        (change_sums[:, 0] + change_sums[:, 1])
+    )
+
+    # Number of random velocity changes / length of sequence minus timesteps
+    # where a wall bounce occured - random velocity changes are not sampled
+    # when there is a wall bounce
+    df_data["PVC_effective"] = change_sums[:, 1] / timesteps
+    
     # Overall condition descriptors
     hzs = np.sort(df_data["PCCNVC"].unique())
     conts = np.sort(df_data["PCCOVC"].unique())
+    
     df_data["Hazard Rate"] = pd.Categorical(
         df_data["PCCNVC"].apply(
             lambda hz: (
@@ -511,6 +450,7 @@ def add_effective_stats_to_df(
         ),
         categories=["Low", "High"],
     )
+    
     df_data["Contingency"] = pd.Categorical(
         df_data["PCCOVC"].apply(
             lambda cont: (
@@ -522,6 +462,7 @@ def add_effective_stats_to_df(
         ),
         categories=["Low", "Medium", "High"],
     )
+    
     return df_data    
 
 
@@ -532,7 +473,8 @@ def save_video_dataset(
         dict_metadata,
         output_samples,
         output_targets,
-        duration=40,
+        task,
+        duration=defaults.duration,
         mode="original",
         multiplier=2,
         save_target=True,
@@ -586,7 +528,8 @@ def save_video_dataset(
         target_color = params["Final Color"]
         
         # Create the df for the targets and color changes
-        timestamps = np.arange(params["length"]) * duration        
+        timestamps = np.arange(params["length"]) * duration
+        
         df_target = pd.DataFrame(target, index=timestamps, columns=target_columns)
         df_target.index.name = "Timestamp"
         df_sample = pd.DataFrame(sample, index=timestamps, columns=sample_columns)
@@ -632,7 +575,7 @@ def save_video_dataset(
             path_video, _ = task.animate(
                 target,
                 path_dir=dir_video,
-                name=video_name,                
+                name=video_name,
                 duration=duration,
                 mode=mode,
                 multiplier=multiplier,
@@ -643,6 +586,7 @@ def save_video_dataset(
                 as_mp4=as_mp4,
                 include_timestep=include_timestep,
                 return_path=return_path,
+                animate_as_sample=True,
             )
         path_videos.append(path_video)
 
@@ -651,289 +595,58 @@ def save_video_dataset(
 
 
 if __name__ == "__main__":    
-    parser = argparse.ArgumentParser(
-        description="Human Bouncing Ball Data Generation Script"
-    )
+    parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "--size_frame",
-        type=int,
-        nargs=2,
-        default=(256, 256),
-        help="Frame size as two integers (width, height)",
-    )
-    parser.add_argument(
-        "--ball_radius", type=int, default=10, help="Radius of the ball"
-    )
-    parser.add_argument("--dt", type=float, default=0.1, help="Time delta")
-    parser.add_argument(
-        "--num_blocks", type=int, default=20, help="Number of blocks"
-    )
-    parser.add_argument(
-        "--video_length_min_s",
-        type=float,
-        default=6.5,
-        help="Video length in seconds",
-    )
-    parser.add_argument("--duration", type=int, default=35, help="Duration")
-    parser.add_argument(
-        "--total_dataset_length",
-        type=int,
-        default=35,
-        help="Total dataset length",
-    )
-    parser.add_argument(
-        "--mask_center", type=float, default=0.5, help="Mask center"
-    )
-    parser.add_argument(
-        "--mask_fraction", type=float, default=1 / 3, help="Mask fraction"
-    )
-    parser.add_argument(
-        "--num_pos_endpoints",
-        type=int,
-        default=5,
-        help="Number of positive endpoints",
-    )
-    parser.add_argument(
-        "--velocity_lower",
-        type=float,
-        default=1 / 12.5,
-        help="Lower velocity limit",
-    )
-    parser.add_argument(
-        "--velocity_upper",
-        type=float,
-        default=1 / 7.5,
-        help="Upper velocity limit",
-    )
-    parser.add_argument(
-        "--num_y_velocities", type=int, default=2, help="Number of y velocities"
-    )
-    parser.add_argument("--dryrun", action="store_true", help="Enable dry run")
-
-    parser.add_argument(
-        "--pccnvc_lower", type=float, default=0.01, help="PCCNVC lower limit"
-    )
-    parser.add_argument(
-        "--pccnvc_upper", type=float, default=0.045, help="PCCNVC upper limit"
-    )
-    parser.add_argument(
-        "--pccovc_lower", type=float, default=0.1, help="PCCOVC lower limit"
-    )
-    parser.add_argument(
-        "--pccovc_upper", type=float, default=0.9, help="PCCOVC upper limit"
-    )
-    parser.add_argument(
-        "--num_pccnvc", type=int, default=2, help="Number of PCCNVC"
-    )
-    parser.add_argument(
-        "--num_pccovc", type=int, default=3, help="Number of PCCOVC"
-    )
-    parser.add_argument("--pvc", type=float, default=0.0, help="PVC")
-    parser.add_argument(
-        "--border_tolerance_outer",
-        type=float,
-        default=2.0,
-        help="Border tolerance outer",
-    )
-    parser.add_argument(
-        "--border_tolerance_inner",
-        type=float,
-        default=1.0,
-        help="Border tolerance inner",
-    )
-    parser.add_argument(
-        "--trial_type_split",
-        default=(0.05, -1, -1, -1),
-        help="Bounce straight split",
-
-    )
-    parser.add_argument(
-        "--sequence_length", type=int, default=None, help="Sequence length"
-    )
-    parser.add_argument(
-        "--seed", type=int, default=None, help="Random Seed"
-    )    
-    parser.add_argument(
-        "--target_future_timestep",
-        type=int,
-        default=0,
-        help="Target future timestep",
-    )
-    parser.add_argument(
-        "--mask_color",
-        type=int,
-        nargs=3,
-        default=(127, 127, 127),
-        help="Mask color as three integers (R, G, B)",
-    )
-    parser.add_argument(
-        "--min_t_color_change",
-        type=int,
-        default=20,
-        help="Minimum time for color change",
-    )
-    parser.add_argument(
-        "--sample_mode", type=str, default="parameter_array", help="Sample mode"
-    )
-    parser.add_argument(
-        "--target_mode", type=str, default="parameter_array", help="Target mode"
-    )
-
-    parser.add_argument("--no_change", action="store_true", help="Verbose mode")
-    parser.add_argument(
-        "--return_change_mode", type=str, default="source", help="Change Mode"
-    )
+    # Inferred args from the dictionaries
+    parser = pyutils.add_dataclass_args(parser, defaults.HumanDatasetParameters)
+    parser = pyutils.add_dataclass_args(parser, defaults.TaskParameters)
     
-    parser.add_argument(
-        "--sequence_mode", type=str, default="reverse", help="Sequence mode"
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable debug mode"
-    )
-    parser.add_argument(
-        "--display_animation", action="store_true", help="Display animation"
-    )
-    parser.add_argument("--mode", type=str, default="original", help="Mode")
-    parser.add_argument("--multiplier", type=int, default=2, help="Multiplier")
-    parser.add_argument(
-        "--include_timestep",
-        action="store_true",
-        help="Include timestep in the output",
-    )
-    parser.add_argument(
-        "--total_videos", type=int, default=None, help="Total number of videos"
-    )
-    parser.add_argument(
-        "--dir_base",
-        type=Path,
-        default=index.dir_data / "hmdcpd",
-        help="Base directory for output",
-    )
-    parser.add_argument(
-        "--name_dataset",
-        type=str,
-        default="hbb_dataset_" + datetime.now().strftime("%y%m%d_%H%M%S"),
-        help="Dataset name",
-    )
-    parser.add_argument(
-        "--exp_scale",
-        type=float,
-        default=1.0,
-        help="Exponential scaling factor",
-    )
-    parser.add_argument("--verbose", action="store_true", help="Verbose mode")
+    # Manual additions
+    parser.add_argument("--dir_base", type=Path, default=index.dir_data/"hmdcpd")
+    parser.add_argument("--name_dataset", default=defaults.name_dataset)
+    parser.add_argument("--display_animation", default=defaults.display_animation)
+    parser.add_argument("--mode", type=str, default=defaults.mode)
+    parser.add_argument("--multiplier", type=int, default=defaults.multiplier)
+    parser.add_argument("--include_timestep", default=defaults.include_timestep)
+    parser.add_argument("--dryrun", action="store_true")
+    parser.add_argument("--verbose", action="store_true")
+    
 
     # Parse the arguments from the command line
     args = parser.parse_args()
-
+    
     # Setup the logger
     logger = logutils.configure_logger(verbose=args.verbose, trace=args.debug)
-
-    # Generate video parameters based on the arguments provided
-    *params, dict_metadata = generate_video_parameters(
-        size_frame=args.size_frame,
-        ball_radius=args.ball_radius,
-        dt=args.dt,
-        video_length_min_s=args.video_length_min_s,
-        duration=args.duration,
-        total_dataset_length=args.total_dataset_length,
-        mask_center=args.mask_center,
-        mask_fraction=args.mask_fraction,
-        num_pos_endpoints=args.num_pos_endpoints,
-        velocity_lower=args.velocity_lower,
-        velocity_upper=args.velocity_upper,
-        num_y_velocities=args.num_y_velocities,
-        num_pccnvc=args.num_pccnvc,
-        num_pccovc=args.num_pccovc,
-        border_tolerance_outer=args.border_tolerance_outer,
-        border_tolerance_inner=args.border_tolerance_inner,
-        trial_type_split=args.trial_type_split,
-        total_videos=args.total_videos,
-        exp_scale=args.exp_scale,
-    )
-
-    # Add some extra parameters to the metadata
-    dict_metadata["min_t_color_change"] = args.min_t_color_change
-
-    num_params = sum(len(param) for param in params)
-    if args.total_videos is not None:
-        assert num_params == args.total_videos
-
-    if args.sequence_length is None:
-        max_length = dict_metadata["video_length_max_f"]
-    else:
-        max_length = args.sequence_length
-        
-    params_flattened = list(itertools.chain.from_iterable(params))    
-    positions, velocities, colors, pccnvcs, pccovcs, pvcs, fxvc, fyvc, meta_trials = (
-        list(param) for param in zip(*params_flattened)
-    )
-
-    task = BouncingBallTask(
-        size_frame=args.size_frame,
-        sequence_length=max_length,
-        ball_radius=args.ball_radius,
-        target_future_timestep=args.target_future_timestep,
-        dt=args.dt,
-        batch_size=len(positions),
-        sample_mode=args.sample_mode,
-        target_mode=args.target_mode,
-        mask_center=args.mask_center,
-        mask_fraction=args.mask_fraction,
-        mask_color=args.mask_color,
-        sequence_mode=args.sequence_mode,
-        return_change=not args.no_change,
-        return_change_mode=args.return_change_mode,
-        debug=True,
-        probability_velocity_change=pvcs,
-        probability_color_change_no_velocity_change=pccnvcs,
-        probability_color_change_on_velocity_change=pccovcs,
-        forced_velocity_bounce_x=fxvc,
-        forced_velocity_bounce_y=fyvc,
-        initial_position=positions,
-        initial_velocity=velocities,
-        initial_color=colors,
-        min_t_color_change=args.min_t_color_change,
-    )
-
-    samples = task.samples
-    targets = task.targets
-    # Target change indices:
-    #     targets[:, : -4] - Velocity Change Bounce - vcr
-    #     targets[:, : -3] - Velocity Change Random - vcb
-    #     targets[:, : -2] - Color Change bounce - ccb
-    #     targets[:, : -1] - Color change random - ccr
-
-    assert np.all(np.isclose(np.array(positions), targets[:, -1, :2]))
-    assert np.all(np.isclose(np.stack(colors), targets[:, -1, 2:5]))
-
-    output_data, output_samples, output_targets, timesteps, change_sums = shorten_trials_and_update_meta(
-        params_flattened, samples, targets, args.duration, variable_length=True,
-    )
-
-    df_data, dict_metadata = generate_data_df(
-        output_data,
-        dict_metadata,
-        targets,
-        num_blocks=args.num_blocks,
-    )
-    df_data = add_effective_stats_to_df(df_data, timesteps, change_sums)
-    htaskutils.print_block_stats(df_data, dict_metadata, args.duration)
-
     dir_base = Path(args.dir_base)
+    
+    task_parameters = {
+        key: getattr(args, key) for key in defaults.TaskParameters.keys
+    }
+    human_dataset_parameters = {
+        key: getattr(args, key) for key in defaults.HumanDatasetParameters.keys
+    }
+
+    size_x, size_y = args.size_frame
+
+    task, samples, targets, df_data, dict_metadata = generate_video_dataset(
+        human_dataset_parameters,
+        task_parameters,
+        shuffle=False,
+    )
+
     dict_metadata["name"] = name_dataset = htaskutils.generate_dataset_name(
         args.name_dataset,
         seed=dict_metadata["seed"],
-    )   
+    )
 
     path_videos = save_video_dataset(
         dir_base,
         name_dataset,
         df_data,
         dict_metadata,
-        output_samples,
-        output_targets,        
+        samples,
+        targets,
+        task,
         duration=args.duration,
         mode=args.mode,
         multiplier=args.multiplier,

@@ -14,7 +14,7 @@ def last_visible_color(
         ball_radius,
         mask_start,
         mask_end,
-        time_step_mode="mid",
+        time_step_mode="inner",
         tol=1,
 ):
     """Determine the last visible RGB color of a ball before it fully enters a
@@ -82,7 +82,7 @@ def last_visible_color(
     # Use argmax to find the first 1.0 in the reversed tensor, then calculating
     # timesteps - 1 - index gives the correct index in the original tensor
     first_out_mask_reversed = np.argmax(out_mask_reversed, axis=1)
-    last_visible_index = timesteps - 1 - first_out_mask_reversed
+    last_visible_index = timesteps - first_out_mask_reversed
 
     # Use this to index the original tensor for the last visible color
     last_visible_colors = samples[np.arange(batch_size), last_visible_index, 2:]

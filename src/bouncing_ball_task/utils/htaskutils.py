@@ -49,7 +49,7 @@ def print_type_stats(
     else:
         out_funcs = [print] * 2 
     
-    position, velocity, color, pccnvc, pccovc, pvc, meta = zip(*trials)
+    position, velocity, color, pccnvc, pccovc, pvc, fxvc, fyvc, meta = zip(*trials)
     stats_comb = [f"{nvc}-{ovc}" for nvc, ovc in zip(pccnvc, pccovc)]
     list_messages = []
 
@@ -85,19 +85,6 @@ def print_type_stats(
             ("Top/Bottom Splits:", Counter(m["side_top_bottom"] for m in meta)),
             ("Velocity Splits:", Counter(m["idx_velocity_y"] for m in meta)),
         ]
-
-    if trial_type.lower() == "bounce":
-        trial_type_stats += [
-            ("Final y position splits", Counter(m["idx_y_position"] for m in meta)),
-        ]
-        df = pd.DataFrame(meta)
-        for idx_x, df_idx in df.groupby("idx_time"):
-            trial_type_stats += [
-                (
-                    f"x={idx_x} - Final y position splits",
-                    Counter(df_idx["idx_y_position"]),
-                )
-            ]
 
     max_desc_len = max([len(desc) for (desc, _) in trial_type_stats])
     for (description, value) in trial_type_stats:
@@ -150,7 +137,6 @@ def print_block_stats(df_data, dict_metadata, duration, use_logger=True):
             f"({length_block_min} min {length_block_s_rem} sec)"
         )
 
-        # import ipdb; ipdb.set_trace()
         block_stats = [
             ("Min Video Length (s):", df_block["length_ms"].min() / 1000),
             ("Max Video Length (s):", df_block["length_ms"].max() / 1000),
@@ -285,7 +271,6 @@ def generate_dataset_name(name_dataset, seed=None):
     return "_".join(name_list)
         
 
-
 def compute_dataset_size(
         exp_scale,
         fixed_video_length,
@@ -406,10 +391,10 @@ def compute_dataset_size_video_based(
 
         # Sample exponential lengths for this number of videos
         if fixed_video_length:
-            dict_video_lengths_f_type[trial_type] = np.ones(num_trials) * fixed_video_length            
+            dict_video_lengths_f_type[trial_type] = np.ones(num_trials).astype(int) * fixed_video_length
         
         elif trial_type == "catch" and min_length_catch:
-            dict_video_lengths_f_type[trial_type] = np.ones(num_trials) * video_length_min_f
+            dict_video_lengths_f_type[trial_type] = np.ones(num_trials).astype(int) * video_length_min_f
             
         else:
             dict_video_lengths_f_type[trial_type] = np.rint(
@@ -444,11 +429,17 @@ def generate_initial_dict_metadata(
         mask_fraction,
         mask_center,
         bounce_offset,
-        num_pos_endpoints,
-        num_pos_bounce,
+        num_pos_x_endpoints,
+        num_pos_y_endpoints,
+        y_pos_multiplier,
         border_tolerance_outer,
         border_tolerance_inner,
+        num_pos_x_linspace_bounce,
+        idx_linspace_bounce,
+        bounce_timestep,
+        repeat_factor,        
         seed,
+        **kwargs,
 ):
     # Convenience
     size_x, size_y = size_frame
@@ -464,13 +455,20 @@ def generate_initial_dict_metadata(
         "mask_fraction": mask_fraction,
         "size_x": size_x,
         "size_y": size_y,
-        "num_pos_endpoints": num_pos_endpoints,
-        "num_pos_bounce": num_pos_bounce,
+        "num_pos_x_endpoints": num_pos_x_endpoints,
+        "num_pos_y_endpoints": num_pos_y_endpoints,
+        "y_pos_multiplier": y_pos_multiplier,
         "pvc": pvc,
         "num_y_velocities": num_y_velocities,
         "bounce_offset": bounce_offset,
+        "border_tolerance_inner": border_tolerance_inner,
+        "border_tolerance_outer": border_tolerance_outer,
+        "num_pos_x_linspace_bounce": num_pos_x_linspace_bounce,
+        "idx_linspace_bounce": idx_linspace_bounce,
+        "bounce_timestep": bounce_timestep,
+        "repeat_factor": repeat_factor,
         "seed": seed,
-    }
+    } | kwargs
     
     # Useful quantities
     dict_metadata["num_trials"] = sum(
@@ -529,14 +527,12 @@ def generate_initial_dict_metadata(
     )
     dict_metadata["mask_end"] = mask_end = size_x - mask_start
 
-
-
     # Normal trials
     # x position Grayzone linspace
     dict_metadata["x_grayzone_linspace"] = x_grayzone_linspace = np.linspace(
         mask_start + (border_tolerance_inner + 1) * ball_radius,
         mask_end - (border_tolerance_inner + 1) * ball_radius,
-        num_pos_endpoints,
+        num_pos_x_endpoints,
         endpoint=True,
     )
 
