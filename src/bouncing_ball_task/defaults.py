@@ -23,13 +23,15 @@ class TaskParameters:
     
     return_change: bool = True
     return_change_mode: str = "source"
+
+    min_t_color_change_after_bounce: int = 15
+    min_t_color_change_after_random: int = 15
     
-    min_t_color_change_after_random: int = 3
-    min_t_color_change_after_bounce: int = 3
-    min_t_velocity_change_after_random: int = 3
-    min_t_velocity_change_after_bounce: int = 3
-    warmup_t_no_rand_color_change: int = 3
-    warmup_t_no_rand_velocity_change: int = 3
+    min_t_velocity_change_after_bounce: int = 25
+    min_t_velocity_change_after_random: int = 80
+    
+    warmup_t_no_rand_velocity_change: int = 25
+    warmup_t_no_rand_color_change: int = 2    
     
     color_sampling: str = "fixed"
     color_mask_mode: str = "inner"
@@ -46,6 +48,7 @@ class TaskParameters:
     color_change_bounce_delay: int = 0
     color_change_random_delay: int = 0
     transitioning_change_mode: Optional[str] = None
+    transition_tol: int = 5
     
     debug: bool = False
 

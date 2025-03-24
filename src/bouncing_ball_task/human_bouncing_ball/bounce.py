@@ -193,4 +193,4 @@ def generate_bounce_trials(
             use_logger=use_logger,
         )
 
-    return trials, dict_meta
+    return trials, dict_meta_type

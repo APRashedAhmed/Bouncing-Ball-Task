@@ -36,11 +36,11 @@ def generate_catch_trials(
         size_x - border_tolerance_outer * ball_radius,
     )
     
-    dict_meta = {"num_trials": num_trials}
+    dict_meta_type = {"num_trials": num_trials}
 
     # Keep track of possible catch x positions
-    dict_meta["nongrayzone_left_x_range"] = nongrayzone_left_x_range
-    dict_meta["nongrayzone_right_x_range"] = nongrayzone_right_x_range
+    dict_meta_type["nongrayzone_left_x_range"] = nongrayzone_left_x_range
+    dict_meta_type["nongrayzone_right_x_range"] = nongrayzone_right_x_range
 
     # Catch Trial Positions
     final_x_position = pyutils.alternating_ab_sequence(
@@ -126,4 +126,4 @@ def generate_catch_trials(
     if print_stats:
         htaskutils.print_type_stats(trials, "catch", duration, use_logger=use_logger)
 
-    return trials, dict_meta
+    return trials, dict_meta_type

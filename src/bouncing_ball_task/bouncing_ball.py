@@ -127,6 +127,7 @@ class BouncingBallTask:
         color_change_bounce_delay: int = 0,
         color_change_random_delay: int = 0,
         transitioning_change_mode: Optional[str] = None,
+        transition_tol: int = 5,
         samples=None,
         targets=None,
         *args,
@@ -140,6 +141,7 @@ class BouncingBallTask:
         self.ball_radius = ball_radius
         self.ball_diameter = 2 * self.ball_radius
         self.dt = dt
+        
         self.min_t_color_change_after_random = min_t_color_change_after_random
         self.min_t_color_change_after_bounce = min_t_color_change_after_bounce
         self.min_t_velocity_change_after_random = min_t_velocity_change_after_random
@@ -209,6 +211,8 @@ class BouncingBallTask:
         self._sequence_mode = None
         self.sequence_mode = sequence_mode  # Use setter during initialization
 
+        self.transition_tol = transition_tol
+        
         if self.preset_samples is not None and self.preset_targets is not None:
             if self.sequence_mode != "preset":
                 logger.warning(
@@ -1345,11 +1349,11 @@ class BouncingBallTask:
             # Find indices where the ball is gray-transitioning
             transitioning_overlap = np.clip(
                 np.minimum(
-                    position[:, 0] + self.ball_radius,
+                    position[:, 0] + self.ball_radius + self.transition_tol,
                     self.mask_end,
                 ) -
                 np.maximum(
-                    position[:, 0] - self.ball_radius,
+                    position[:, 0] - self.ball_radius - self.transition_tol,
                     self.mask_start,
                 ),
                 0,

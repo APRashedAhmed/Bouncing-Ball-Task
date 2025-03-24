@@ -100,33 +100,36 @@ def generate_video_dataset(
         task_parameters["warmup_t_no_rand_color_change"] = defaults.warmup_t_no_rand_color_change
     else:
         logger.info("Not generating data using standardized parameters")
-        
+
+    # Keep track of parameters used to generate the task
+    dict_metadata["task_parameters"] = task_parameters
+    dict_metadata["human_dataset_parameters"] = human_dataset_parameters
+
+    # Create the underlying task instance
     task = BouncingBallTask(**task_parameters)
 
+    # Convenience
     samples = task.samples
     targets = task.targets
-    dict_metadata["min_t_color_change_after_bounce"] = task.min_t_color_change_after_bounce
-    dict_metadata["min_t_velocity_change_after_bounce"] = task.min_t_velocity_change_after_bounce
-    dict_metadata["min_t_color_change_after_random"] = task.min_t_color_change_after_random
-    dict_metadata["min_t_velocity_change_after_random"] = task.min_t_velocity_change_after_random
     
-    # Update metadata
-    output_data, output_samples, output_targets, timesteps, change_sums = shorten_trials_and_update_meta(
+    # Turn the samples and targets into the videos that will be used in the dataset
+    output_data, output_samples, output_targets  = shorten_trials_and_update_meta(
+    # output_data, output_samples, output_targets, timesteps, change_sums = shorten_trials_and_update_meta(
         params_flattened,
         samples,
         targets,
         human_dataset_parameters["duration"],
         variable_length=human_dataset_parameters["variable_length"],
     )
-    
-    df_data, dict_metadata = generate_data_df(
+
+    # Generate the complete metadata for the dataset
+    df_data, dict_metadata = generate_dataset_metadata(
         output_data,
         dict_metadata,
-        targets,
+        output_samples=output_samples,
+        output_targets=output_targets,        
         num_blocks=human_dataset_parameters["num_blocks"],
     )
-
-    df_data = add_effective_stats_to_df(df_data, timesteps, change_sums)
 
     if validate:
         assert np.all(np.isclose(np.array(positions), targets[:, -1, :2]))
@@ -236,14 +239,15 @@ def generate_video_parameters(
                 use_logger=use_logger,
             )
             list_trials_all.append(trials)
-    
+            
     return *list_trials_all, dict_metadata        
 
 
-def generate_data_df(
+def generate_dataset_metadata(
     row_data,
     dict_metadata,
-    targets=None,
+    output_samples=None,
+    output_targets=None,
     num_blocks=None,
 ):
     df_trial_metadata = pd.DataFrame(row_data)
@@ -256,16 +260,20 @@ def generate_data_df(
            .astype(int)
        )    
 
-    if targets is not None:
+    if output_targets is not None:
+        # Find shortest video length
+        min_length = dict_metadata["video_length_min_f"]
+        lengths = df_trial_metadata.length.values
+        
         # Add in the last color entered and its index
         last_color, last_idx = taskutils.last_visible_color(
-            targets[:, :, :5],
+            np.stack([targets[-min_length:, :5] for targets in output_targets]),
             dict_metadata["ball_radius"],
             dict_metadata["mask_start"],
             dict_metadata["mask_end"],
             return_index=True,
         )
-        df_trial_metadata["last_visible_color_idx"] = last_idx
+        df_trial_metadata["last_visible_color_idx"] = last_idx + lengths - min_length
         df_trial_metadata["last_visible_color"] = color_entered = 1 + np.argmax(
             last_color,
             axis=1,
@@ -300,11 +308,25 @@ def generate_data_df(
             dict_metadata,
             num_blocks,
         )
+
+    if output_samples is not None and output_targets is not None: 
+        df_trial_metadata, dict_metadata = compute_effective_stats(
+            df_trial_metadata,
+            dict_metadata,
+            output_samples,
+            output_targets,
+        )        
         
     return df_trial_metadata, dict_metadata
 
 
-def shorten_trials_and_update_meta(params_flattened, samples, targets, duration, variable_length=True):
+def shorten_trials_and_update_meta(
+        params_flattened,
+        samples,
+        targets,
+        duration,
+        variable_length=True,
+):
     output_samples, output_targets, output_data = [], [], []    
     for idx_param, (param, sample, target) in enumerate(
         zip(
@@ -338,17 +360,18 @@ def shorten_trials_and_update_meta(params_flattened, samples, targets, duration,
         )
         output_data.append(meta_trial)
 
-    if variable_length:
-        timesteps = np.array([target.shape[0] for target in output_targets])
-        change_sums = np.array([target.sum(axis=0) for target in output_targets])[:, -4:]
+    # if variable_length:
+    #     timesteps = np.array([target.shape[0] for target in output_targets])
+        # change_sums = np.array([target.sum(axis=0) for target in output_targets])[:, -4:]
         
-    else:
+    # else:
+    if not variable_length:
         output_samples = samples
         output_targets = targets
-        timesteps = np.array([output_targets.shape[1]] * output_targets.shape[0])
-        change_sums = output_targets[:, :, -4:].sum(axis=1)
+        # timesteps = np.array([output_targets.shape[1]] * output_targets.shape[0])
+        # change_sums = output_targets[:, :, -4:].sum(axis=1)
 
-    return output_data, output_samples, output_targets, timesteps, change_sums    
+    return output_data, output_samples, output_targets # timesteps #, change_sums
 
 
 def generate_blocks_from_data_df(
@@ -405,10 +428,11 @@ def generate_blocks_from_data_df(
     return df_trial_metadata, dict_metadata
 
 
-def add_effective_stats_to_df(
+def compute_effective_stats(
         df_data,
-        timesteps,
-        change_sums,
+        dict_metadata,
+        output_samples,
+        output_targets,
 ):
     """Adds 'effective' statistics of each individual sequence which is based on
     the actual number of changes that occured, including the unobservable ones.
@@ -418,34 +442,22 @@ def add_effective_stats_to_df(
     change_sums[:, 2] - Total color change bounce - ccb
     change_sums[:, 3] - Total color change random - ccr
     """
-    # Add observable changes
-    df_data["Bounces"] = vcb = change_sums[:, 0].astype(int)
-    df_data["Random Bounces"] = vcr =change_sums[:, 1].astype(int)
-    df_data["Color Change Bounce"] = ccb = change_sums[:, 2].astype(int)
-    df_data["Color Change Random"] = ccr = change_sums[:, 3].astype(int)
+    change_sequence = [target[:, -4:] for target in output_targets]
     
-    # Number of random changes / length of the sequence minus timesteps where a
-    # velocity change occured - Random color changes are not sampled when there
-    # is a velocity change
-    df_data["PCCNVC_effective"] = ccr / (timesteps - vcb - vcr)
-    # (
-    #     change_sums[:, 3] /
-    #     (timesteps - change_sums[:, 0] - change_sums[:, 1])
-    # )
+    # Add all changes
+    df_data = compute_change_stats(df_data, change_sequence)
 
-    # Number of bounce color changes / the number of velocity changes that
-    # occured
-    df_data["PCCOVC_effective"] = ccb / (vcb + vcr)
-    # (
-    #     change_sums[:, 2] /
-    #     (change_sums[:, 0] + change_sums[:, 1])
-    # )
-
-    # Number of random velocity changes / length of sequence minus timesteps
-    # where a wall bounce occured - random velocity changes are not sampled
-    # when there is a wall bounce
-    df_data["PVC_effective"] = vcr / (timesteps - vcb)
-    # change_sums[:, 1] / (timesteps - change_sums[:, 0])
+    # Add observable changes
+    mask_color = np.array(dict_metadata["task_parameters"]["mask_color"])
+    change_sequence_observable = [
+        sequence[(sample[:, 2:] == mask_color).all(axis=-1)]
+        for sample, sequence in zip(output_samples, change_sequence)
+    ]
+    df_data = compute_change_stats(
+        df_data,
+        change_sequence_observable,
+        suffix="observable"
+    )
     
     # Overall condition descriptors
     hzs = np.sort(df_data["PCCNVC"].unique())
@@ -473,8 +485,94 @@ def add_effective_stats_to_df(
         ),
         categories=["Low", "Medium", "High"],
     )
+
+    dict_metadata = compute_effective_type_stats(df_data, dict_metadata)
+    return df_data, dict_metadata
+
+
+def compute_change_stats(df_data, change_sequence, suffix=""):
+    """Adds change statistics of each individual sequence which is based on
+    the actual number of changes that occured.
     
-    return df_data    
+    change_sums[:, 0] - Total velocity change bounce - vcb
+    change_sums[:, 1] - Total velocity change random - vcr
+    change_sums[:, 2] - Total color change bounce - ccb
+    change_sums[:, 3] - Total color change random - ccr
+    """
+    suff = f" {suffix}" if suffix else ""
+    change_sums = np.array([sequence.sum(axis=0) for sequence in change_sequence])
+    timesteps = np.array([len(sequence) for sequence in change_sequence])
+    
+    # Add all the individual changes
+    df_data[f"Bounces{suff}"] = vcb = change_sums[:, 0].astype(int)
+    df_data[f"Random Bounces{suff}"] = vcr = change_sums[:, 1].astype(int)
+    df_data[f"Color Change Bounce{suff}"] = ccb = change_sums[:, 2].astype(int)
+    df_data[f"Color Change Random{suff}"] = ccr = change_sums[:, 3].astype(int)
+
+    suff = f"_{suffix}" if suffix else ""
+    # Number of random changes / length of the sequence minus timesteps where a
+    # velocity change occured - Random color changes are not sampled when there
+    # is a velocity change
+    df_data[f"PCCNVC_effective{suff}"] = ccr / (timesteps - vcb - vcr)
+
+    # Number of bounce color changes / the number of velocity changes that
+    # occured. Only update nonzero ccbs to prevent divide by zeros
+    pccovc_eff = ccb.astype(float)
+    pccovc_eff[ccb != 0] = ccb[ccb != 0] / (vcb[ccb != 0] + vcr[ccb != 0])    
+    df_data[f"PCCOVC_effective{suff}"] = pccovc_eff
+
+    # Number of random velocity changes / length of sequence minus timesteps
+    # where a wall bounce occured - random velocity changes are not sampled
+    # when there is a wall bounce
+    df_data[f"PVC_effective{suff}"] = vcr / (timesteps - vcb)
+
+    return df_data
+
+
+def compute_effective_type_stats(
+        df_data,
+        dict_metadata,
+        key="effective",
+        stats_group = {
+            "Hazard Rate": "PCCNVC_effective",
+            "Contingency": "PCCOVC_effective",
+        },
+        stats_all_trials = (
+            "PVC_effective",
+        ),
+        col_trials="trial",
+):
+    # Create initial dicts
+    dict_metadata[key] = {}
+    
+    for trial in df_data[col_trials].unique():
+        dict_metadata[trial.lower()][key] = {}
+
+    for group, stat in stats_group.items():        
+        for val, df_group in df_data.groupby(group):
+            if key in stat:
+                stat_key = stat.replace(key, val)
+            else:
+                stat_key = stat + f"_{val}"
+
+            dict_metadata[key][stat_key] = float(df_group[stat].mean())
+            
+            for trial, df_trial in df_group.groupby(col_trials):
+                dict_metadata[trial.lower()][key][stat_key] = float(df_trial[stat].mean())
+                
+    for stat in stats_all_trials:
+        if key in stat:
+            stat_list = stat.split("_")
+            stat_list.remove(key)
+            stat_key = "_".join(stat_list)
+        else:
+            stat_key = key
+        dict_metadata[key][stat_key] = float(df_data[stat].mean())
+        
+        for trial, df_trial in df_data.groupby(col_trials):
+            dict_metadata[trial.lower()][key][stat_key] = float(df_trial[stat].mean())
+        
+    return dict_metadata
 
 
 def save_video_dataset(
@@ -605,7 +703,219 @@ def save_video_dataset(
         return path_videos
 
 
-if __name__ == "__main__":    
+## Maximum Task Sensitivity
+
+def compute_slope_and_residuals(group, cwc):
+    """Compute slope and residual variance using least squares regression."""
+    X = np.vstack([group, np.ones_like(group)]).T  # Design matrix
+    slope, intercept = np.linalg.lstsq(X, cwc, rcond=None)[
+        0
+    ]  # Solve for slope and intercept
+
+    residuals = cwc - (slope * group + intercept)
+    residual_var = residuals.var(
+        ddof=1
+    )  # Use variance instead of std to avoid redundant sqrt
+    return slope, residual_var
+
+
+def compute_within_subject_hz_effect_size(
+    idx_time,
+    cwc,
+    index_high,
+    index_low,
+):
+    """Compute within-subject standardized effect size for a single participant."""
+    # Compute statistics for high and low conditions
+    slope_high, residual_var_high = compute_slope_and_residuals(
+        idx_time[index_high], cwc[index_high]
+    )
+    slope_low, residual_var_low = compute_slope_and_residuals(
+        idx_time[index_low], cwc[index_low]
+    )
+    # Compute slope difference
+    slope_diff = slope_high - slope_low
+
+    # Compute pooled standard deviation (avoid redundant sqrt)
+    sigma_pooled = np.sqrt((residual_var_high + residual_var_low) / 2)
+
+    # Compute within-subject effect size (Cohen’s d)
+    d_within = (
+        slope_diff / sigma_pooled if sigma_pooled > 0 else np.nan
+    )  # Avoid division by zero
+
+    return {
+        "slope_high": slope_high,
+        "slope_low": slope_low,
+        "slope_diff": slope_diff,
+        "residual_var_high": residual_var_high,
+        "residual_var_low": residual_var_low,
+        "sigma_pooled": sigma_pooled,
+        "d_within": d_within,
+    }
+
+
+def compute_within_subject_cont_effect_size(
+    pccovc,
+    cwc,
+    index_bounce,
+):
+    """Compute within-subject standardized effect size for a single participant."""
+    # Compute statistics for high and low conditions
+    slope, residual_var = compute_slope_and_residuals(
+        pccovc,
+        cwc[index_bounce],
+    )
+
+    # Compute standardized effect size (Cohen’s d)
+    sigma = np.sqrt(residual_var)
+    d_within = (
+        slope / sigma if sigma > 0 else np.nan
+    )  # Avoid division by zero
+
+    return {
+        "slope": slope,
+        "residual_var": residual_var,
+        "d_within": d_within,
+    }
+
+def plot_effective_stats(df_data):
+    # Create the subplots
+    palette = visualization.get_color_palette(
+        ["Low", "High"],
+        (("Blues", 1), ("Reds", 1)),
+        linspace_range=(0.75, 1),
+    )
+    palette_trial = visualization.get_color_palette(
+        ["Catch", "Straight", "Nonwall", "Bounce"],
+        (("Greens", 1), ("Blues", 1), ("Wistia", 1), ("Reds", 1)),
+        linspace_range=(0.75, 1),
+    )
+    palette_contingency = visualization.get_color_palette(
+        ["Low", "Medium", "High"],
+        (("Blues", 1), ("Wistia", 1), ("Reds", 1)),
+        linspace_range=(0.75, 1),
+    )
+
+    plot_params = [
+        [
+            (
+                "PCCNVC_effective",
+                "Observed Hazard Rates",
+                "Effective Hazard Rate Bins",
+                {
+                    "hue": "Hazard Rate",
+                    "legend": True,
+                    "palette": palette,
+                }
+            ),
+            (
+                "PCCOVC_effective",
+                "Observed Trial Contingency",
+                "Effective Contingency Bins",
+                {
+                    "hue": "Contingency",
+                    "palette": palette_contingency,
+                    "legend": True,
+                },
+            ),
+            (
+                "PVC_effective",
+                "Observed Trial Random Bounce",
+                "Effective Random Bounce Bins",
+                {
+                    "hue": "trial",
+                    "palette": palette_trial,
+                    "legend": True,
+                },
+            ),
+            (
+                "length",
+                "Distribution of Video Lengths",
+                "Video Length Bins",
+                {
+                    "hue": "trial",
+                    "legend": True,
+                    "palette": palette_trial,
+                }
+            ),
+        ],
+        [
+            (
+                "Color Change Random",
+                "Number of Random Color Changes",
+                "Random Color Change Bins",
+                {
+                    "hue": "Hazard Rate",
+                    "legend": False,
+                    "discrete": True,
+                    "palette": palette,
+                }
+            ),
+            (
+                "Color Change Bounce",
+                "Number of Bounce Color Changes",
+                "Bounce Color Changes",
+                {
+                    "discrete": True,
+                    "hue": "Contingency",
+                    "palette": palette_contingency,
+                    "legend": False,
+                }
+            ),
+            (
+                "Random Bounces",
+                "Number of Random Bounces",
+                "Number of Random Bounces",
+                {
+                    "discrete": True,
+                    "hue": "trial",
+                    "palette": palette_trial,
+                    "legend": False,
+                }
+            ),
+            (
+                "Bounces",
+                "Number of Wall Bounces",
+                "Number of Wall Bounces",
+                {
+                    "discrete": True,
+                    "hue": "trial",
+                    "palette": palette_trial,
+                    "legend": True,
+                }
+            ),
+        ],
+    ]
+
+    rows = 2
+    fig, axes = plt.subplots(
+        rows,
+        len(plot_params[0]),
+        figsize=(len(plot_params[0])*4, rows*4),
+    )
+
+    for i, row_plots in enumerate(plot_params):
+        for j, (col, title, xlabel, plot_dict) in enumerate(row_plots):
+            ax = axes[i, j]
+            sns.histplot(
+                df_data,
+                x=col,
+                ax=ax,
+                **plot_dict,
+            )
+            ax.set_title(title)
+            ax.set_xlabel(xlabel)
+            if j != 0:
+                ax.set_ylabel(None)
+
+    plt.suptitle(f"Task Statstics for {batch_size} Videos")
+    plt.tight_layout()
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from hmdcpd import visualization
     parser = argparse.ArgumentParser()
 
     # Inferred args from the dictionaries
@@ -647,7 +957,7 @@ if __name__ == "__main__":
     dict_metadata["name"] = name_dataset = htaskutils.generate_dataset_name(
         args.name_dataset,
         seed=dict_metadata["seed"],
-    )
+    )    
 
     path_videos = save_video_dataset(
         dir_base,

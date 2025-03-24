@@ -31,7 +31,7 @@ def generate_straight_trials(
     dt = dict_meta["dt"]
     x_grayzone_linspace_sides = dict_meta["x_grayzone_linspace_sides"]
     
-    dict_meta = {"num_trials": num_trials}
+    dict_meta_type = {"num_trials": num_trials}
 
     multipliers = np.arange(1, num_pos_x_endpoints + 1)
     time_x_diff = diff / (final_velocity_x_magnitude * dt)
@@ -67,13 +67,13 @@ def generate_straight_trials(
     ).astype(int)
 
     # Keep track of velocities
-    dict_meta["indices_velocity_y_magnitude_counts"] = np.unique(
+    dict_meta_type["indices_velocity_y_magnitude_counts"] = np.unique(
         indices_velocity_y_magnitude,
         return_counts=True,
     )
 
     # Straight y positions
-    y_distance_traversed = dict_meta["y_distance_traversed"] = (
+    y_distance_traversed = dict_meta_type["y_distance_traversed"] = (
         position_y_diff[:, np.newaxis] * multipliers
     )
 
@@ -102,7 +102,7 @@ def generate_straight_trials(
 
     # This is shape [2 x 2 x num_vel x num_pos_x_endpoints x 2*num_pos_x_endpoints]
     # [left/right, top/bottom, each vel, num x positions, num y pos per x pos]
-    final_y_positions = dict_meta[
+    final_y_positions = dict_meta_type[
         "final_y_positions"
     ] = np.stack(
         [
@@ -121,7 +121,7 @@ def generate_straight_trials(
     ).tolist()
 
     # Keep track of color counts
-    dict_meta["final_color_counts"] = np.unique(
+    dict_meta_type["final_color_counts"] = np.unique(
         final_color,
         return_counts=True,
         axis=0,
@@ -144,15 +144,15 @@ def generate_straight_trials(
     ).tolist()
 
     # Keep track of pcc counts
-    dict_meta["pccnvc_counts"] = np.unique(
+    dict_meta_type["pccnvc_counts"] = np.unique(
         pccnvc,
         return_counts=True,
     )
-    dict_meta["pccovc_counts"] = np.unique(
+    dict_meta_type["pccovc_counts"] = np.unique(
         pccovc,
         return_counts=True,
     )
-    dict_meta["pccnvc_pccovc_counts"] = np.unique(
+    dict_meta_type["pccnvc_pccovc_counts"] = np.unique(
         [x for x in zip(*(pccnvc, pccovc))],
         return_counts=True,
         axis=0,
@@ -212,7 +212,7 @@ def generate_straight_trials(
         )
 
     # Keep track of position counts
-    dict_meta["x_grayzone_position_counts"] = np.unique(
+    dict_meta_type["x_grayzone_position_counts"] = np.unique(
         [x for x in zip(*final_position)][0],
         return_counts=True,
     )
@@ -240,4 +240,4 @@ def generate_straight_trials(
             use_logger=use_logger,
         )
 
-    return trials, dict_meta
+    return trials, dict_meta_type

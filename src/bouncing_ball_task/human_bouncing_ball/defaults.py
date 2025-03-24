@@ -18,15 +18,6 @@ class TaskParameters(_BaseTaskParameters):
     sequence_mode: str = "reverse"
     target_future_timestep: int = 0
     sample_velocity_discretely: bool = True
-    initial_velocity_points_away_from_grayzone: bool = True
-    initial_timestep_is_changepoint: bool = False
-    min_t_color_change_after_random: int = 15
-    min_t_color_change_after_bounce: int = 10
-    min_t_velocity_change_after_random: int = 15
-    min_t_velocity_change_after_bounce: int = 10
-    warmup_t_no_rand_velocity_change: int = 20
-    warmup_t_no_rand_color_change: int = 2
-
 
 @dataclass
 class HumanDatasetParameters:
@@ -45,11 +36,11 @@ class HumanDatasetParameters:
     exp_scale: float = 1.75
     standard: bool = True
 
-    pvc: float = 0.001
-    pccnvc_lower: float = 0.00575
-    pccnvc_upper: float = 0.0575
-    pccovc_lower: float = 0.025
-    pccovc_upper: float = 0.975
+    pvc: float = 0.025
+    pccnvc_lower: float = 0.0065
+    pccnvc_upper: float = 0.1
+    pccovc_lower: float = 0.1
+    pccovc_upper: float = 0.925
     num_pccnvc: int = 2
     num_pccovc: int = 3
 
