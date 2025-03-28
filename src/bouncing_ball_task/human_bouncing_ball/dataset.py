@@ -575,6 +575,8 @@ def compute_effective_type_stats(
     return dict_metadata
 
 
+# Change to include saving samples and targets as .npy and then also the task
+# instance
 def save_video_dataset(
         dir_base,
         name_dataset,
