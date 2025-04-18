@@ -1,4 +1,5 @@
 """Functions for "basic python", not related to specific packages or goals."""
+import argparse
 import os
 import re
 import ast
@@ -631,7 +632,7 @@ def create_sequence_splits(seq, total=None):
         # Allocate the remainder to each wildcard based on its weight
         for i, idx in enumerate(wildcard_indices):
             result[idx] = remainder * wildcard_weights[i] / sum(wildcard_weights)
-        
+
     return [val / sum(result) for val in result]
 
 

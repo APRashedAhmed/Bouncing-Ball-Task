@@ -377,6 +377,39 @@ def group_model_names(df_all_data_model):
     return group_dict
 
 
+def sequence_list_to_array(
+        list_sequences,
+        pad_value=-1,
+        axis_timestep=0,
+        axis_batch=0,
+):
+    """Takes a list of N-D sequences and stacks them along the batch dim,
+    padding them along the time dim if necessary.
+    """
+    len_sequences = [seq.shape[axis_timestep] for seq in list_sequences]
+    
+    if len(np.unique(len_sequences)) == 1:
+        return np.stack(list_sequences, axis=axis_batch)
+    
+    else:
+        max_length = max(len_sequences)
+        pad_widths = np.zeros(
+            (len(list_sequences), list_sequences[0].ndim, 2),
+            dtype=int,
+        )
+        pad_widths[:, axis_timestep] = np.array(
+            [(0, max_length - seq.shape[axis_timestep]) for seq in list_sequences]
+        )
+        
+        return np.stack(
+            [
+                np.pad(seq, pad_width, constant_values=-1)
+                for seq, pad_width in zip(list_sequences, pad_widths)
+            ],
+            axis=axis_batch,
+        )
+
+
 ## Write function that loads the task data and all participant data, combines them,
 ## and then does some validation on them.
 

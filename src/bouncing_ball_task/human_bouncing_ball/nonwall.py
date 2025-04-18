@@ -153,7 +153,7 @@ def generate_nonwall_trials(
         return_counts=True,
         axis=0,
     )
-    dict_meta_trials["idx_y_position"] = np.searchsorted(unique_y_positions, final_y_positions).tolist()  
+    dict_meta_trials["idx_y_position"] = np.searchsorted(unique_y_positions, final_y_positions).tolist()
     
     # Combine into final positions
     final_position = np.stack([final_x_positions, final_y_positions], axis=-1).tolist()

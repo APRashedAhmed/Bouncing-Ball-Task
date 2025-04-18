@@ -15,8 +15,6 @@ from loguru import logger
 
 from bouncing_ball_task import index
 from bouncing_ball_task.constants import (
-    CONSTANT_COLOR,
-    DEFAULT_COLORS,
     default_ball_colors,
     default_color_to_idx_dict,
 )
@@ -40,7 +38,7 @@ trial_types = tuple(key for key, _ in dict_trial_type_generation_funcs.items())
 
 def generate_video_dataset(
     human_dataset_parameters,
-    task_parameters,    
+    task_parameters,
     shuffle=True,
     validate=True,
 ):
@@ -59,8 +57,10 @@ def generate_video_dataset(
     # Shuffle if asked
     if shuffle:
         random.shuffle(params_flattened)
+
+    import ipdb; ipdb.set_trace()
     
-    positions, velocities, colors, pccnvcs, pccovcs, pvcs, fxvc, fyvc, meta_trials = (
+    positions, velocities, colors, pccnvcs, pccovcs, pvcs, fxvc, fyvc, fcc, meta_trials = (
         list(param) for param in zip(*params_flattened)
     )
 
@@ -126,6 +126,7 @@ def generate_video_dataset(
     df_data, dict_metadata = generate_dataset_metadata(
         output_data,
         dict_metadata,
+        task_parameters,
         output_samples=output_samples,
         output_targets=output_targets,        
         num_blocks=human_dataset_parameters["num_blocks"],
@@ -174,10 +175,14 @@ def generate_video_parameters(
     bounce_timestep: int = defaults.bounce_timestep,
     repeat_factor: int = defaults.repeat_factor,
     seed: Optional[int] = defaults.seed,
+    dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,        
     **kwargs,
 ):
     # Set the seed
     seed = pyutils.set_global_seed(seed)
+
+    # Grab the trial types that are available
+    trial_types = tuple(key for key, _ in dict_trial_type_generation_funcs.items())
     
     # Convenience
     dict_num_trials_type, dict_video_lengths_f_type = htaskutils.compute_dataset_size(
@@ -188,6 +193,7 @@ def generate_video_parameters(
         total_dataset_length,
         total_videos,
         trial_type_split,
+        trial_types,
     )
 
     dict_metadata = htaskutils.generate_initial_dict_metadata(
@@ -227,25 +233,25 @@ def generate_video_parameters(
     if print_stats:
         htaskutils.print_task_summary(dict_metadata, use_logger=use_logger)
         
-    list_trials_all = []
-    
-    for trial_type, trial_generator_func in dict_trial_type_generation_funcs.items():
-        if dict_num_trials_type[trial_type] > 0:
-            trials, dict_metadata[trial_type] = trial_generator_func(
-                dict_num_trials_type[trial_type],
-                dict_metadata,
-                dict_video_lengths_f_type[trial_type],
-                print_stats=print_stats,
-                use_logger=use_logger,
-            )
-            list_trials_all.append(trials)
-            
-    return *list_trials_all, dict_metadata        
+    dict_trials = {}
+
+    for trial_type, num_trials in dict_num_trials_type.items():
+        if num_trials > 0:
+                dict_trials[trial_type], dict_metadata[trial_type] = dict_trial_type_generation_funcs[trial_type](
+                    num_trials,
+                    dict_metadata,
+                    dict_video_lengths_f_type[trial_type],
+                    print_stats=print_stats,
+                    use_logger=use_logger,
+                )
+
+    return dict_trials, dict_metadata
 
 
 def generate_dataset_metadata(
     row_data,
     dict_metadata,
+    task_parameters,
     output_samples=None,
     output_targets=None,
     num_blocks=None,
@@ -254,12 +260,15 @@ def generate_dataset_metadata(
     
     # Change the column to ints
     for col in ["idx_time", "idx_position", "idx_velocity_y"]:
-       df_trial_metadata[col] = (
-           pd.to_numeric(df_trial_metadata[col], errors="coerce")
-           .fillna(-1)
-           .astype(int)
-       )    
-
+        try:
+            df_trial_metadata[col] = (
+                pd.to_numeric(df_trial_metadata[col], errors="coerce")
+                .fillna(-1)
+                .astype(int)
+            )
+        except KeyError:
+            logger.warning(f"Got KeyError for column '{col}', skipping")
+            
     if output_targets is not None:
         # Find shortest video length
         min_length = dict_metadata["video_length_min_f"]
@@ -313,6 +322,7 @@ def generate_dataset_metadata(
         df_trial_metadata, dict_metadata = compute_effective_stats(
             df_trial_metadata,
             dict_metadata,
+            task_parameters,
             output_samples,
             output_targets,
         )        
@@ -336,7 +346,7 @@ def shorten_trials_and_update_meta(
         )
     ):
         # Grab the relevant params
-        position, velocity, color, pccnvc, pccovc, pvc, fxvc, fyvc, meta_trial = param
+        position, velocity, _, pccnvc, pccovc, pvc, *_, meta_trial = param
         length = meta_trial["length"]
 
         if variable_length:
@@ -431,6 +441,7 @@ def generate_blocks_from_data_df(
 def compute_effective_stats(
         df_data,
         dict_metadata,
+        task_parameters,
         output_samples,
         output_targets,
 ):
@@ -448,7 +459,7 @@ def compute_effective_stats(
     df_data = compute_change_stats(df_data, change_sequence)
 
     # Add observable changes
-    mask_color = np.array(dict_metadata["task_parameters"]["mask_color"])
+    mask_color = np.array(task_parameters["mask_color"])
     change_sequence_observable = [
         sequence[(sample[:, 2:] == mask_color).all(axis=-1)]
         for sample, sequence in zip(output_samples, change_sequence)
@@ -544,7 +555,7 @@ def compute_effective_type_stats(
 ):
     # Create initial dicts
     dict_metadata[key] = {}
-    
+
     for trial in df_data[col_trials].unique():
         dict_metadata[trial.lower()][key] = {}
 
@@ -634,8 +645,6 @@ def save_video_dataset(
         sample = output_samples[idx_video]
         target = output_targets[idx_video]
         color_change = target[:, -2:].any(axis=-1)
-        idx_block = int(params["Dataset Block"])
-        idx_block_video = int(params["Dataset Block Video"])
         target_color = params["Final Color"]
         
         # Create the df for the targets and color changes
@@ -649,9 +658,18 @@ def save_video_dataset(
         df_color_change.index.name = "Timestamp"
 
         # Create the relevant paths
-        dir_block = dir_all_videos / f"block_{idx_block}"
-        dir_video = dir_block / f"video_{idx_block_video}"
-        msg = f"Generating video files in /dir_dataset/videos/{dir_block.stem}/{dir_video.stem}"
+        try:
+            idx_block = int(params["Dataset Block"])
+            idx_block_video = int(params["Dataset Block Video"])        
+            dir_block = dir_all_videos / f"block_{idx_block}"
+            dir_video = dir_block / f"video_{idx_block_video}"
+            display_path = "/dir_dataset/videos/{dir_block.stem}/{dir_video.stem}"
+        except KeyError:
+            idx_block_video = idx_video
+            dir_video = dir_all_videos / f"video_{idx_block_video}"
+            display_path = "/dir_dataset/videos/{dir_video.stem}"
+            
+        msg = f"Generating video files in {display_path}"
         if dryrun:
             msg = f"  Dryrun - {msg}"
         elif not dir_video.exists():

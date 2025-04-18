@@ -168,3 +168,4 @@ def plot_effective_stats(
         plt.tight_layout()
 
     return fig, axes
+

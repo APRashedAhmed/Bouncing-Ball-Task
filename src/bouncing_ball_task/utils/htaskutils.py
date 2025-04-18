@@ -6,14 +6,9 @@ import numpy as np
 from loguru import logger
 
 from bouncing_ball_task.utils import pyutils
+from bouncing_ball_task.constants import DEFAULT_COLORS
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
 
-trial_types = [
-    "catch" ,
-    "straight",
-    "bounce",
-    "nonwall",
-]
 
 def print_task_summary(meta, use_logger=True):
     if use_logger:
@@ -279,6 +274,7 @@ def compute_dataset_size(
         total_dataset_length,
         total_videos,
         trial_type_split,
+        trial_types,
 ):
     # Bring exp to same scale as time
     exp_scale_ms = exp_scale * 1000
@@ -298,7 +294,7 @@ def compute_dataset_size(
     video_length_min_ms = video_length_min_f * duration
 
     # Get the parsed trial type splits
-    trial_type_split = pyutils.create_sequence_splits(trial_type_split)    
+    trial_type_split = pyutils.create_sequence_splits(trial_type_split)
         
     # Compute the number of videos we can make given the contraints if not
     # explicitly provided with a total number of videos
@@ -310,6 +306,7 @@ def compute_dataset_size(
             trial_type_split,
             exp_scale_ms,
             duration,
+            trial_types,
         )
     else:
         return compute_dataset_size_video_based(
@@ -320,6 +317,7 @@ def compute_dataset_size(
             fixed_video_length,
             exp_scale_ms,
             duration,
+            trial_types,
         )
 
     
@@ -330,12 +328,17 @@ def compute_dataset_size_time_based(
         trial_type_split,
         exp_scale_ms,
         duration,
+        trial_types,
         min_length_catch=True,
 ):
     max_ds_length_ms = remaining_ds_lenth_ms = total_ds_length * 60 * 1000  # * s * ms
     dict_num_trials_type, dict_video_lengths_f_type = {}, {}
     
     for i, p_split in enumerate(trial_type_split):
+        # Skip if no trials for this type
+        if p_split == 0.0:
+            continue
+        
         # Grab the trial type
         trial_type = trial_types[i]
 
@@ -380,11 +383,16 @@ def compute_dataset_size_video_based(
         fixed_video_length,
         exp_scale_ms,
         duration,
+        trial_types,
         min_length_catch=True,
 ):
     dict_num_trials_type, dict_video_lengths_f_type = {}, {}
-    
+
     for i, p_split in enumerate(trial_type_split):
+        # Skip if no trials for this type
+        if p_split == 0.0:
+            continue
+        
         # Grab the trial type
         trial_type = trial_types[i]
         dict_num_trials_type[trial_type] = num_trials = np.rint(p_split * total_videos).astype(int)
@@ -439,6 +447,8 @@ def generate_initial_dict_metadata(
         bounce_timestep,
         repeat_factor,        
         seed,
+        min_pos_x_endpoints=2,
+        
         **kwargs,
 ):
     # Convenience
@@ -529,24 +539,188 @@ def generate_initial_dict_metadata(
 
     # Normal trials
     # x position Grayzone linspace
-    dict_metadata["x_grayzone_linspace"] = x_grayzone_linspace = np.linspace(
-        mask_start + (border_tolerance_inner + 1) * ball_radius,
-        mask_end - (border_tolerance_inner + 1) * ball_radius,
-        num_pos_x_endpoints,
-        endpoint=True,
-    )
+    min_num_pos_x_endpoints = 2    
+    if num_pos_x_endpoints is None or num_pos_x_endpoints < min_num_pos_x_endpoints:
 
-    # Final x position linspaces that correspond to approaching from each side
-    x_grayzone_linspace_reversed = x_grayzone_linspace[::-1]
-    dict_metadata["x_grayzone_linspace_sides"] = np.vstack(
-        [
-            x_grayzone_linspace,
-            x_grayzone_linspace_reversed,
-        ]
-    )
+        dict_metadata["x_grayzone_linspace_sides"] = np.array(
+            [
+                [mask_start + (border_tolerance_inner + 1) * ball_radius],
+                [mask_end - (border_tolerance_inner + 1) * ball_radius],
+            ]
+        )
+        dict_metadata["x_grayzone_linspace"] = x_grayzone_linspace = dict_metadata["x_grayzone_linspace_sides"][0]
+                
+    else:
+        dict_metadata["x_grayzone_linspace"] = x_grayzone_linspace = np.linspace(
+            mask_start + (border_tolerance_inner + 1) * ball_radius,
+            mask_end - (border_tolerance_inner + 1) * ball_radius,
+            num_pos_x_endpoints,
+            endpoint=True,
+        )
+    
+        # Final x position linspaces that correspond to approaching from each side
+        x_grayzone_linspace_reversed = x_grayzone_linspace[::-1]
+        dict_metadata["x_grayzone_linspace_sides"] = np.vstack(
+            [
+                x_grayzone_linspace,
+                x_grayzone_linspace_reversed,
+            ]
+        )
 
     # Get the final y positions depending on num of end x
     dict_metadata["diff"] = np.diff(x_grayzone_linspace).mean()
 
     # Fill with starting values
     return dict_metadata
+
+
+def compute_trial_idx_vals(
+        num_trials,
+        dict_meta,
+        dict_meta_trials,
+        dict_meta_type,        
+):
+    repeat_factor = dict_meta["repeat_factor"]
+    num_y_velocities = dict_meta["num_y_velocities"]
+    
+    # Binary arrays for whether the ball ends to the left or right of the grayzone
+    # and if it is going towards the top or bottom    
+    sides_left_right = pyutils.repeat_sequence(
+        np.array([0, 1] * repeat_factor),
+        num_trials,
+    ).astype(int)
+    dict_meta_trials["side_left_right"] = sides_left_right.tolist()
+    dict_meta_type["side_left_right_counts"] = np.unique(
+        dict_meta_trials["side_left_right"],
+        return_counts=True,
+    )
+
+    sides_top_bottom = pyutils.repeat_sequence(
+        np.array([0, 1] * repeat_factor),
+        num_trials,
+    ).astype(int)
+    dict_meta_trials["side_top_bottom"] = sides_top_bottom.tolist()
+    dict_meta_type["side_top_bottom_counts"] = np.unique(
+        dict_meta_trials["side_top_bottom"],
+        return_counts=True,
+    )        
+
+    indices_velocity_y_magnitude = pyutils.repeat_sequence(
+        np.array(list(range(num_y_velocities)) * repeat_factor),
+        num_trials,
+    ).astype(int)
+    dict_meta_trials["idx_velocity_y"] = indices_velocity_y_magnitude.tolist()
+    dict_meta_type["indices_velocity_y_magnitude_counts"] = np.unique(
+        indices_velocity_y_magnitude,
+        return_counts=True,
+    )    
+
+    return sides_left_right, sides_top_bottom, indices_velocity_y_magnitude, dict_meta_trials, dict_meta_type
+
+def compute_trial_color_and_stats(
+        num_trials,
+        dict_meta,
+        dict_meta_type,
+):
+    pccnvc_linspace = dict_meta["pccnvc_linspace"]
+    pccovc_linspace = dict_meta["pccovc_linspace"]
+   
+    # Precompute colors
+    final_color = pyutils.repeat_sequence(
+        np.array(DEFAULT_COLORS),
+        num_trials,
+        shuffle=False,
+        roll=True,
+        shift=1,
+    ).tolist()
+
+    # Keep track of color counts
+    dict_meta_type["final_color_counts"] = np.unique(
+        final_color,
+        return_counts=True,
+        axis=0,
+    )
+
+    # Precompute the statistics
+    pccnvc = pyutils.repeat_sequence(
+        pccnvc_linspace,
+        # np.tile(pccnvc_linspace, num_pccovc),
+        num_trials,
+        shuffle=False,
+        roll=True,
+        # roll=False if num_pccovc % num_pccnvc else True,
+    ).tolist()
+    pccovc = pyutils.repeat_sequence(
+        pccovc_linspace,
+        # np.tile(pccovc_linspace, num_pccnvc),
+        num_trials,
+        shuffle=False,
+    ).tolist()
+
+    # Keep track of pcc counts
+    dict_meta_type["pccnvc_counts"] = np.unique(
+        pccnvc,
+        return_counts=True,
+    )
+    dict_meta_type["pccovc_counts"] = np.unique(
+        pccovc,
+        return_counts=True,
+    )
+    dict_meta_type["pccnvc_pccovc_counts"] = np.unique(
+        [x for x in zip(*(pccnvc, pccovc))],
+        return_counts=True,
+        axis=0,
+    )
+
+    return final_color, pccnvc, pccovc, dict_meta_type    
+    
+
+def group_trial_data(
+        num_trials,
+        final_position,
+        final_velocity,
+        final_color,
+        pccnvc,
+        pccovc,
+        pvc,
+        bounce_index_x=None,
+        bounce_index_y=None,
+        color_change_index=None,
+        dict_meta_trials=None,
+):
+    if bounce_index_x is None:
+        bounce_index_x = [[],] * num_trials
+
+    if bounce_index_y is None:
+        bounce_index_y = [[],] * num_trials
+
+    if color_change_index is None:
+        color_change_index = [[],] * num_trials
+
+    if not pyutils.isiterable(pvc):
+        pvc = [pvc,] * num_trials
+
+    list_to_zip = [
+        final_position,
+        final_velocity,
+        final_color,
+        pccnvc,
+        pccovc,
+        pvc,
+        bounce_index_x,
+        bounce_index_y,
+        color_change_index,
+    ]
+
+    if dict_meta_trials is not None:
+        list_to_zip.append([
+            dict(zip(dict_meta_trials, values))
+            for values in zip(*dict_meta_trials.values())
+        ])
+
+    for i, val in enumerate(list_to_zip):
+        assert len(val) == num_trials, f"Length mismatch for list_to_zip at [{i}]"
+
+    return list(zip(*list_to_zip))
+
+        
