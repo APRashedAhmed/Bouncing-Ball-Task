@@ -13,8 +13,8 @@ from bouncing_ball_task import index
 from bouncing_ball_task.constants import default_idx_to_color_dict
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
 from bouncing_ball_task.utils import logutils, pyutils, taskutils, htaskutils
-from bouncing_ball_task.model_bouncing_ball import defaults
 from bouncing_ball_task.human_bouncing_ball import dataset as hds
+from bouncing_ball_task.model_bouncing_ball import defaults
 from bouncing_ball_task.model_bouncing_ball.ncc_nvc import generate_ncc_nvc_trials
 from bouncing_ball_task.model_bouncing_ball.cc_nvc import generate_cc_nvc_trials
 from bouncing_ball_task.model_bouncing_ball.ncc_vc import generate_ncc_vc_trials
@@ -41,128 +41,13 @@ def generate_model_dataset_nongray(
     validate=True,
     dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
 ):
-    assert (
-        len(dict_trial_type_generation_funcs.items()) ==
-        len(model_dataset_parameters["trial_type_split"])
-    )
-
-    dict_params, dict_metadata = hds.generate_video_parameters(
-        **model_dataset_parameters,
-        dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
-    )
-    trial_types = tuple(key for key, _ in dict_params.items())
-
-    task_parameters = copy.deepcopy(task_parameters)
-    
-    task_parameters["target_future_timestep"] = defaults.target_future_timestep
-    task_parameters["sequence_length"] = dict_metadata["video_length_max_f"]
-    task_parameters["sample_velocity_discretely"] = defaults.sample_velocity_discretely
-    task_parameters["initial_velocity_points_away_from_grayzone"] = defaults.initial_velocity_points_away_from_grayzone
-    task_parameters["initial_timestep_is_changepoint"] = defaults.initial_timestep_is_changepoint
-    task_parameters["min_t_color_change_after_bounce"] = defaults.min_t_color_change_after_bounce
-    task_parameters["min_t_velocity_change_after_bounce"] = defaults.min_t_velocity_change_after_bounce
-    task_parameters["min_t_color_change_after_random"] = defaults.min_t_color_change_after_random
-    task_parameters["min_t_velocity_change_after_random"] = defaults.min_t_velocity_change_after_random
-    task_parameters["warmup_t_no_rand_velocity_change"] = defaults.warmup_t_no_rand_velocity_change
-    task_parameters["warmup_t_no_rand_color_change"] = defaults.warmup_t_no_rand_color_change
-    
-    task_parameters["sample_mode"] = defaults.sample_mode
-    task_parameters["target_mode"] = defaults.target_mode
-    task_parameters["return_change"] = defaults.return_change
-    task_parameters["return_change_mode"] = defaults.return_change_mode
-    task_parameters["sequence_mode"] = defaults.sequence_mode
-    task_parameters["pccnvc_lower"] = None
-    task_parameters["pccnvc_upper"] = None
-    task_parameters["pccovc_lower"] = None
-    task_parameters["pccovc_upper"] = None
-
-    list_params_type = []
-    list_samples_type = []
-    list_targets_type = []
-
-    for trial_type, params in dict_params.items():
-        list_params_type += params
-        
-        positions, velocities, colors, pccnvcs, pccovcs, pvcs, fxvc, fyvc, fcc, meta_trials = (
-            list(param) for param in zip(*params)
-        )    
-            
-        # Set relevant variables
-        task_parameters_type = copy.deepcopy(task_parameters)
-        task_parameters_type["initial_position"] = positions
-        task_parameters_type["initial_velocity"] = velocities
-        task_parameters_type["initial_color"] = colors
-        task_parameters_type["probability_velocity_change"] = pvcs
-        task_parameters_type["probability_color_change_no_velocity_change"] = pccnvcs
-        task_parameters_type["probability_color_change_on_velocity_change"] = pccovcs
-        task_parameters_type["forced_velocity_bounce_x"] = fxvc
-        task_parameters_type["forced_velocity_bounce_y"] = fyvc
-        task_parameters_type["forced_color_changes"] = fcc
-        task_parameters_type["batch_size"] = len(positions)
-
-        # Apply overrides if they are defined
-        if (overrides := dict_metadata[trial_type].get("overrides", None)):
-            task_parameters_type.update(overrides)
-
-        # Keep track of the underlying parameters
-        dict_metadata[trial_type]["task_parameters"] = task_parameters_type
-
-        # Create the underlying task instance
-        task = BouncingBallTask(**task_parameters_type)
-
-        if validate:
-            assert np.all(np.isclose(np.array(positions), task.targets[:, -1, :2]))
-            assert np.all(np.isclose(np.stack(colors), task.targets[:, -1, 2:5]))
-
-        list_samples_type.append(task.samples)
-        list_targets_type.append(task.targets)
-
-    # Combine all the samples and targets to create one preset dataset
-    samples = np.concatenate(list_samples_type)
-    targets = np.concatenate(list_targets_type)
-    task_parameters["sequence_mode"] = "preset"
-    task_parameters["batch_size"] = len(samples)
-    task = BouncingBallTask(**task_parameters, samples=samples, targets=targets)
-
-    # Turn the samples and targets into the videos that will be used in the dataset
-    output_data, output_samples, output_targets  = hds.shorten_trials_and_update_meta(    
-        list_params_type,
-        samples,
-        targets,
-        model_dataset_parameters["duration"],
-        variable_length=model_dataset_parameters["variable_length"],
-    )
-
-    # Generate the complete metadata for the dataset
-    df_data, dict_metadata = generate_dataset_metadata(
-        output_data,
-        dict_metadata,
-        task_parameters_type,
-        output_samples=output_samples,
-        output_targets=output_targets,                
-        num_blocks=model_dataset_parameters["num_blocks"],
-    )
-
-    return task, output_samples, output_targets, df_data, dict_metadata
-
-
-def generate_dataset_metadata(
-        output_data,
-        dict_metadata,
-        task_parameters_type,
-        output_samples=None,
-        output_targets=None,
-        *args,
-        **kwargs,
-):
-    df_data, dict_metadata = hds.generate_dataset_metadata(
-        output_data,
-        dict_metadata,
-        task_parameters_type,
-        output_samples=output_samples,
-        output_targets=output_targets,
-        *args,
-        **kwargs,
+    task, output_samples, output_targets, df_data, dict_metadata = hds.generate_video_dataset(
+        model_dataset_parameters,
+        task_parameters, 
+        dict_trial_type_generation_funcs,
+        shuffle=shuffle,
+        validate=validate,
+        defaults=defaults,
     )
 
     color_final = df_data["Final Color"].values
@@ -172,9 +57,9 @@ def generate_dataset_metadata(
     color_final_prev = np.stack([color_final, color_prev], axis=-1)
     cc = df_data["trial"].str.startswith("cc").values.astype(int)
     df_data["Start Color"] = color_final_prev[np.arange(len(cc)), cc]
-    
-    return df_data, dict_metadata
 
+    return task, output_samples, output_targets, df_data, dict_metadata
+    
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -186,7 +71,7 @@ if __name__ == "__main__":
     parser = pyutils.add_dataclass_args(parser, defaults.NongrayDatasetParameters)
 
     # Manual additions
-    parser.add_argument("--dir_base", type=Path, default=index.dir_data/"hmdcpd")
+    parser.add_argument("--dir_base", type=Path, default=index.dir_repo/"data/hmdcpd")
     parser.add_argument("--name_dataset", default=defaults.name_dataset)
     parser.add_argument("--display_animation", default=defaults.display_animation)
     parser.add_argument("--mode", type=str, default=defaults.mode)

@@ -25,6 +25,7 @@ def generate_catch_trials(
     pccovc_linspace = dict_meta["pccovc_linspace"]
     pvc = dict_meta["pvc"]
     duration = dict_meta["duration"]
+    catch_ncc_nvc_timesteps = dict_meta["catch_ncc_nvc_timesteps"]
     
     # x positions Non-Grayzone
     nongrayzone_left_x_range = (
@@ -37,6 +38,12 @@ def generate_catch_trials(
     )
     
     dict_meta_type = {"num_trials": num_trials}
+
+    dict_meta_trials = {    
+        "idx": list(range(num_trials)),
+        "trial": ["catch"] * num_trials,
+        "length": video_lengths_f.astype(int).tolist(),
+    }
 
     # Keep track of possible catch x positions
     dict_meta_type["nongrayzone_left_x_range"] = nongrayzone_left_x_range
@@ -55,7 +62,7 @@ def generate_catch_trials(
             endpoint=True,
         ),
         num_trials,
-    ).tolist()
+    )
 
     final_y_position = pyutils.repeat_sequence(
         np.linspace(
@@ -65,63 +72,41 @@ def generate_catch_trials(
             endpoint=True,
         ),
         num_trials,
-    ).tolist()
-    final_position = zip(
-        final_x_position, final_y_position
     )
-
+    final_position = np.stack([final_x_position, final_y_position], axis=-1).tolist()
+    
     # Catch trial velocities
-    final_velocity = zip(
-        [final_velocity_x_magnitude.item()] * num_trials,
-        pyutils.repeat_sequence(
-            final_velocity_y_magnitude_linspace,
-            num_trials,
-        ).tolist(),
-    )
-
-    # Catch colors
-    final_color = pyutils.repeat_sequence(
-        np.array(DEFAULT_COLORS),
-        num_trials,
-    ).tolist()
-
-    # Catch probabilities
-    pccnvc = pyutils.repeat_sequence(
-        pccnvc_linspace,
-        num_trials,
-    ).tolist()
-    pccovc = pyutils.repeat_sequence(
-        pccovc_linspace,
-        num_trials,
-    ).tolist()
-
-    # Put parameters together
-    trials = list(
+    final_velocity = list(
         zip(
-            final_position,
-            final_velocity,
-            final_color,
-            pccnvc,
-            pccovc,
-            [pvc,] * num_trials,
-            [[],] * num_trials,
-            [[],] * num_trials,
-            [
-                {
-                    "idx": idx,
-                    "trial": "catch",
-                    "idx_time": -1,
-                    "side_left_right": -1,
-                    "side_top_bottom": -1,
-                    "idx_velocity_y": -1,
-                    "idx_x_position": -1,
-                    "idx_y_position": -1,
-                    "length": video_lengths_f[idx],
-                }
-                for idx in range(num_trials)
-            ],
+            [final_velocity_x_magnitude.item()] * num_trials,
+            pyutils.repeat_sequence(
+                final_velocity_y_magnitude_linspace,
+                num_trials,
+            ).tolist(),
         )
     )
+
+    final_color, pccnvc, pccovc, dict_meta_type = htaskutils.compute_trial_color_and_stats(
+        num_trials,
+        dict_meta,
+        dict_meta_type,
+    )
+
+    trials = htaskutils.group_trial_data(
+        num_trials,
+        final_position,
+        final_velocity,
+        final_color,
+        pccnvc,
+        pccovc,
+        dict_meta["pvc"],
+        dict_meta_trials=dict_meta_trials,
+    )    
+
+    dict_meta_type["overrides"] = {
+        "warmup_t_no_rand_velocity_change": catch_ncc_nvc_timesteps,
+        "warmup_t_no_rand_color_change": catch_ncc_nvc_timesteps,
+    }    
 
     if print_stats:
         htaskutils.print_type_stats(trials, "catch", duration, use_logger=use_logger)

@@ -35,6 +35,7 @@ class HumanDatasetParameters:
     video_length_min_s: float = 6.0
     exp_scale: float = 1.75
     standard: bool = True
+    catch_ncc_nvc_timesteps: int = 20
 
     pvc: float = 0.025
     pccnvc_lower: float = 0.0065

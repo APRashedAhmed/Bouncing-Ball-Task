@@ -44,7 +44,7 @@ def print_type_stats(
     else:
         out_funcs = [print] * 2 
     
-    position, velocity, color, pccnvc, pccovc, pvc, fxvc, fyvc, meta = zip(*trials)
+    position, velocity, color, pccnvc, pccovc, pvc, fxvc, fyvc, fcc, meta = zip(*trials)
     stats_comb = [f"{nvc}-{ovc}" for nvc, ovc in zip(pccnvc, pccovc)]
     list_messages = []
 
@@ -578,9 +578,11 @@ def compute_trial_idx_vals(
         num_trials,
         dict_meta,
         dict_meta_trials,
-        dict_meta_type,        
+        dict_meta_type,
+        repeat_factor=None,
 ):
-    repeat_factor = dict_meta["repeat_factor"]
+    if repeat_factor is None:
+        repeat_factor = dict_meta["repeat_factor"]
     num_y_velocities = dict_meta["num_y_velocities"]
     
     # Binary arrays for whether the ball ends to the left or right of the grayzone

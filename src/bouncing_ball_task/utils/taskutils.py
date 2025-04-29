@@ -410,6 +410,40 @@ def sequence_list_to_array(
         )
 
 
+def window_samples(
+        samples: np.ndarray,
+        endpoints: np.ndarray,
+        N: int
+) -> np.ndarray:
+    """
+    For each batch i, grab samples[i, endpoints[i]-N : endpoints[i], :]
+    and return an array of shape (batches, N, features).
+
+    Parameters
+    ----------
+    samples : np.ndarray, shape (batches, timesteps, features)
+    endpoints : np.ndarray, shape (batches,)
+        Integer indices with 0 < endpoints[i] <= timesteps.
+    N : int
+        Window length.
+
+    Returns
+    -------
+    np.ndarray, shape (batches, N, features)
+    """
+    b, T, f = samples.shape
+    # create a (b, N) array of time‑indices for each batch
+    t_idx = endpoints[:, None] + np.arange(-N, 0)  # shape (b, N)
+    # defensive clip if you might hit negative
+    # t_idx = np.clip(t_idx, 0, T-1)
+
+    # create matching batch indices
+    b_idx = np.arange(b)[:, None]                 # shape (b, 1)
+
+    # fancy‑index into samples
+    return samples[b_idx, t_idx, :]               # -> (b, N, f)
+
+
 ## Write function that loads the task data and all participant data, combines them,
 ## and then does some validation on them.
 

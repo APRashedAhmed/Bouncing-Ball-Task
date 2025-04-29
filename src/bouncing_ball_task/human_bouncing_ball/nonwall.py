@@ -49,21 +49,20 @@ def generate_nonwall_trials(
         "trial": ["nonwall"] * num_trials,
         "idx_time": [-1] * num_trials,
     }
-    
-    # Binary arrays for whether the ball exits the grayzone from the left or
-    # right and if it is exiting away from the top or bottom
-    sides_left_right = pyutils.repeat_sequence(
-        np.array([0, 1] * repeat_factor),
-        num_trials,
-    ).astype(int)
-    dict_meta_trials["side_left_right"] = sides_left_right.tolist()
-    
-    sides_top_bottom = pyutils.repeat_sequence(
-        np.array([0, 1] * repeat_factor),
-        num_trials,
-    ).astype(int)
-    dict_meta_trials["side_top_bottom"] = sides_top_bottom.tolist()
 
+    (
+        sides_left_right,
+        sides_top_bottom,
+        indices_velocity_y_magnitude,
+        dict_meta_trials,
+        dict_meta_type,
+    ) = htaskutils.compute_trial_idx_vals(
+        num_trials,
+        dict_meta,
+        dict_meta_trials,
+        dict_meta_type,        
+    )
+    
     # Binary array for whether the ball would have an x or y bounce
     bounce_x_y = pyutils.repeat_sequence(
         np.array([0, 1] * repeat_factor),
@@ -114,13 +113,6 @@ def generate_nonwall_trials(
     )
     dict_meta_trials["idx_x_position"] = np.searchsorted(unique_x_positions, final_x_positions).tolist()  
     
-    # Precompute indices to sample the velocities from
-    indices_velocity_y_magnitude = pyutils.repeat_sequence(
-        np.array(list(range(num_y_velocities)) * num_pos_y_endpoints),
-        num_trials,
-    ).astype(int)
-    dict_meta_trials["idx_velocity_y"] = indices_velocity_y_magnitude.tolist()
-
     # Keep track of velocities
     dict_meta_type["indices_velocity_y_magnitude_counts"] = np.unique(
         indices_velocity_y_magnitude,
@@ -165,66 +157,21 @@ def generate_nonwall_trials(
     ] * velocity_y_sign
     final_velocity = np.stack([final_velocity_x, final_velocity_y], axis=-1).tolist()
     
-    # Precompute colors
-    final_color = pyutils.repeat_sequence(
-        np.array(DEFAULT_COLORS),
+    final_color, pccnvc, pccovc, dict_meta_type = htaskutils.compute_trial_color_and_stats(
         num_trials,
-        shuffle=False,
-        roll=True,
-        shift=1,
-    ).tolist()
+        dict_meta,
+        dict_meta_type,
+    )    
 
-    # Keep track of color counts
-    dict_meta_type["final_color_counts"] = np.unique(
+    trials = htaskutils.group_trial_data(
+        num_trials,
+        final_position,
+        final_velocity,
         final_color,
-        return_counts=True,
-        axis=0,
-    )
-
-    # Precompute the statistics
-    pccnvc = pyutils.repeat_sequence(
-        pccnvc_linspace,
-        # np.tile(pccnvc_linspace, num_pccovc),
-        num_trials,
-        shuffle=False,
-        roll=True,
-        # roll=False if num_pccovc % num_pccnvc else True,
-    ).tolist()
-    pccovc = pyutils.repeat_sequence(
-        pccovc_linspace,
-        # np.tile(pccovc_linspace, num_pccnvc),
-        num_trials,
-        shuffle=False,
-    ).tolist()
-
-    # Keep track of pcc counts
-    dict_meta_type["pccnvc_counts"] = np.unique(
         pccnvc,
-        return_counts=True,
-    )
-    dict_meta_type["pccovc_counts"] = np.unique(
         pccovc,
-        return_counts=True,
-    )
-    dict_meta_type["pccnvc_pccovc_counts"] = np.unique(
-        [x for x in zip(*(pccnvc, pccovc))],
-        return_counts=True,
-        axis=0,
-    )
-
-    # Put nonwall parameters together
-    trials = list(
-        zip(
-            final_position,
-            final_velocity,
-            final_color,
-            pccnvc,
-            pccovc,
-            [pvc,] * num_trials,
-            bounce_index_x,
-            bounce_index_y,
-            [dict(zip(dict_meta_trials, values)) for values in zip(*dict_meta_trials.values())],
-        )
+        dict_meta["pvc"],
+        dict_meta_trials=dict_meta_trials,
     )
 
     if print_stats:

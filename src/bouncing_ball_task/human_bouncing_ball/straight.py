@@ -29,42 +29,44 @@ def generate_straight_trials(
     num_y_velocities = dict_meta["num_y_velocities"]
     diff = dict_meta["diff"]
     dt = dict_meta["dt"]
-    x_grayzone_linspace_sides = dict_meta["x_grayzone_linspace_sides"]
-    
+    x_grayzone_linspace_sides = dict_meta["x_grayzone_linspace_sides"]    
     dict_meta_type = {"num_trials": num_trials}
+
+    dict_meta_trials = {
+        "idx": list(range(num_trials)),
+        "length": video_lengths_f.astype(int).tolist(),
+        "trial": ["straight"] * num_trials,
+    }    
 
     multipliers = np.arange(1, num_pos_x_endpoints + 1)
     time_x_diff = diff / (final_velocity_x_magnitude * dt)
     position_y_diff = final_velocity_y_magnitude_linspace * time_x_diff * dt
 
-    indices_time_in_grayzone = pyutils.repeat_sequence(
+    indices_time_in_grayzone = dict_meta_trials["idx_time"] = pyutils.repeat_sequence(
         np.arange(num_pos_x_endpoints),
         num_trials,
         shuffle=False,
     ).astype(int)
 
-    # Binary arrays for whether the ball enters the grayzone from the left or
-    # right and if it is going towards the top or bottom
-    sides_left_right = pyutils.repeat_sequence(
-        np.array([0, 1] * num_pos_x_endpoints),
+    (
+        sides_left_right,
+        sides_top_bottom,
+        indices_velocity_y_magnitude,
+        dict_meta_trials,
+        dict_meta_type,
+    ) = htaskutils.compute_trial_idx_vals(
         num_trials,
-    ).astype(int)
-    sides_top_bottom = pyutils.repeat_sequence(
-        np.array([0, 1] * num_pos_x_endpoints),
-        num_trials,
-    ).astype(int)
+        dict_meta,
+        dict_meta_trials,
+        dict_meta_type,
+        repeat_factor=num_pos_x_endpoints,
+    )    
 
     # Compute the signs of the velocities using the sides
     velocity_x_sign = 2 * sides_left_right - 1
     velocity_y_sign = (
         2 * np.logical_not(sides_top_bottom) - 1
     )
-
-    # Precompute indices to sample the velocities from
-    indices_velocity_y_magnitude = pyutils.repeat_sequence(
-        np.array(list(range(num_y_velocities)) * num_pos_x_endpoints),
-        num_trials,
-    ).astype(int)
 
     # Keep track of velocities
     dict_meta_type["indices_velocity_y_magnitude_counts"] = np.unique(
@@ -110,127 +112,53 @@ def generate_straight_trials(
             final_y_positions_left[:, :, ::-1],
         ]
     )
-
-    # Precompute colors
-    final_color = pyutils.repeat_sequence(
-        np.array(DEFAULT_COLORS),
-        num_trials,
-        shuffle=False,
-        roll=True,
-        shift=1,
+    
+    final_velocity = np.stack(
+        [
+            final_velocity_x_magnitude * velocity_x_sign,            
+            final_velocity_y_magnitude_linspace[
+                indices_velocity_y_magnitude
+            ] * velocity_y_sign,
+        ],
+        axis=-1,
     ).tolist()
+    final_x_positions = x_grayzone_linspace_sides[
+        sides_left_right,
+        indices_time_in_grayzone
+    ]
+    final_y_positions = np.array([
+        np.random.choice(trial_choice) 
+        for trial_choice in final_y_positions[
+                sides_left_right,
+                sides_top_bottom,
+                indices_velocity_y_magnitude,
+                indices_time_in_grayzone,
+        ]
+    ])
+    final_position = np.stack([final_x_positions, final_y_positions], axis=-1).tolist()
 
-    # Keep track of color counts
-    dict_meta_type["final_color_counts"] = np.unique(
-        final_color,
-        return_counts=True,
-        axis=0,
-    )
-
-    # Precompute the statistics
-    pccnvc = pyutils.repeat_sequence(
-        pccnvc_linspace,
-        # np.tile(pccnvc_linspace, num_pccovc),
+    final_color, pccnvc, pccovc, dict_meta_type = htaskutils.compute_trial_color_and_stats(
         num_trials,
-        shuffle=False,
-        roll=True,
-        # roll=False if num_pccovc % num_pccnvc else True,
-    ).tolist()
-    pccovc = pyutils.repeat_sequence(
-        pccovc_linspace,
-        # np.tile(pccovc_linspace, num_pccnvc),
-        num_trials,
-        shuffle=False,
-    ).tolist()
-
-    # Keep track of pcc counts
-    dict_meta_type["pccnvc_counts"] = np.unique(
-        pccnvc,
-        return_counts=True,
-    )
-    dict_meta_type["pccovc_counts"] = np.unique(
-        pccovc,
-        return_counts=True,
-    )
-    dict_meta_type["pccnvc_pccovc_counts"] = np.unique(
-        [x for x in zip(*(pccnvc, pccovc))],
-        return_counts=True,
-        axis=0,
-    )
-
-    final_position = []
-    final_velocity = []
-    meta = []
-
-    for idx in range(num_trials):
-        # Get an index of time
-        idx_time = indices_time_in_grayzone[idx]
-
-        # Choose the sides to enter the grayzone
-        side_left_right = sides_left_right[idx]
-        side_top_bottom = sides_top_bottom[idx]
-
-        # Get the y velocity index for this trial
-        idx_velocity_y = indices_velocity_y_magnitude[idx]
-
-        # Final velocities
-        final_velocity_x = (
-            final_velocity_x_magnitude * velocity_x_sign[idx]
-        ).item()
-        final_velocity_y = (
-            final_velocity_y_magnitude_linspace[idx_velocity_y]
-            * velocity_y_sign[idx]
-        ).item()
-        final_velocity.append((final_velocity_x, final_velocity_y))
-
-        # Grab the final positions
-        final_position_x = x_grayzone_linspace_sides[
-            side_left_right, idx_time
-        ].item()
-        final_position_y = np.random.choice(
-            final_y_positions[
-                side_left_right,
-                side_top_bottom,
-                idx_velocity_y,
-                idx_time,
-            ]
-        ).item()
-        final_position.append((final_position_x, final_position_y))
-
-        meta.append(
-            {
-                "idx": idx,
-                "trial": "straight",
-                "idx_time": idx_time,
-                "side_left_right": side_left_right,
-                "side_top_bottom": side_top_bottom,
-                "idx_velocity_y": idx_velocity_y,
-                "idx_x_position": -1,
-                "idx_y_position": -1,
-                "length": video_lengths_f[idx],
-            }
-        )
-
+        dict_meta,
+        dict_meta_type,
+    )    
+    
     # Keep track of position counts
     dict_meta_type["x_grayzone_position_counts"] = np.unique(
         [x for x in zip(*final_position)][0],
         return_counts=True,
-    )
+    )    
 
-    # Put straight parameters together
-    trials = list(
-        zip(
-            final_position,
-            final_velocity,
-            final_color,
-            pccnvc,
-            pccovc,
-            [pvc,] * num_trials,
-            [[],] * num_trials,
-            [[],] * num_trials,
-            meta,
-        )
-    )
+    trials = htaskutils.group_trial_data(
+        num_trials,
+        final_position,
+        final_velocity,
+        final_color,
+        pccnvc,
+        pccovc,
+        dict_meta["pvc"],
+        dict_meta_trials=dict_meta_trials,
+    )    
 
     if print_stats:
         htaskutils.print_type_stats(
