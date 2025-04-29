@@ -8,16 +8,13 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+
 from bouncing_ball_task import index
+from bouncing_ball_task.constants import default_idx_to_color_dict
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
 from bouncing_ball_task.utils import logutils, pyutils, taskutils, htaskutils
 from bouncing_ball_task.model_bouncing_ball import defaults
-from bouncing_ball_task.human_bouncing_ball.dataset import (
-    generate_video_parameters,
-    shorten_trials_and_update_meta,
-    generate_dataset_metadata,
-    save_video_dataset,
-)
+from bouncing_ball_task.human_bouncing_ball import dataset as hds
 from bouncing_ball_task.model_bouncing_ball.ncc_nvc import generate_ncc_nvc_trials
 from bouncing_ball_task.model_bouncing_ball.cc_nvc import generate_cc_nvc_trials
 from bouncing_ball_task.model_bouncing_ball.ncc_vc import generate_ncc_vc_trials
@@ -49,7 +46,7 @@ def generate_model_dataset_nongray(
         len(model_dataset_parameters["trial_type_split"])
     )
 
-    dict_params, dict_metadata = generate_video_parameters(
+    dict_params, dict_metadata = hds.generate_video_parameters(
         **model_dataset_parameters,
         dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
     )
@@ -128,7 +125,7 @@ def generate_model_dataset_nongray(
     task = BouncingBallTask(**task_parameters, samples=samples, targets=targets)
 
     # Turn the samples and targets into the videos that will be used in the dataset
-    output_data, output_samples, output_targets  = shorten_trials_and_update_meta(    
+    output_data, output_samples, output_targets  = hds.shorten_trials_and_update_meta(    
         list_params_type,
         samples,
         targets,
@@ -137,7 +134,7 @@ def generate_model_dataset_nongray(
     )
 
     # Generate the complete metadata for the dataset
-    df_data, dict_metadata = generate_dataset_metadata(        
+    df_data, dict_metadata = generate_dataset_metadata(
         output_data,
         dict_metadata,
         task_parameters_type,
@@ -147,6 +144,36 @@ def generate_model_dataset_nongray(
     )
 
     return task, output_samples, output_targets, df_data, dict_metadata
+
+
+def generate_dataset_metadata(
+        output_data,
+        dict_metadata,
+        task_parameters_type,
+        output_samples=None,
+        output_targets=None,
+        *args,
+        **kwargs,
+):
+    df_data, dict_metadata = hds.generate_dataset_metadata(
+        output_data,
+        dict_metadata,
+        task_parameters_type,
+        output_samples=output_samples,
+        output_targets=output_targets,
+        *args,
+        **kwargs,
+    )
+
+    color_final = df_data["Final Color"].values
+    color_prev = df_data["color_after_next"].apply(
+        lambda row: default_idx_to_color_dict[row]
+    ).values
+    color_final_prev = np.stack([color_final, color_prev], axis=-1)
+    cc = df_data["trial"].str.startswith("cc").values.astype(int)
+    df_data["Start Color"] = color_final_prev[np.arange(len(cc)), cc]
+    
+    return df_data, dict_metadata
 
 
 if __name__ == "__main__":
@@ -195,7 +222,7 @@ if __name__ == "__main__":
         seed=dict_metadata["seed"],
     )    
 
-    path_videos = save_video_dataset(
+    path_videos = hds.save_video_dataset(
         dir_base,
         name_dataset,
         df_data,

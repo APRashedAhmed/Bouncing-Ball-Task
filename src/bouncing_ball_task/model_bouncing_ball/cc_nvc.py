@@ -24,7 +24,7 @@ def generate_cc_nvc_trials(
     final_velocity_y_magnitude_linspace = dict_meta["final_velocity_y_magnitude_linspace"]
     ncc_nvc_timesteps = dict_meta["ncc_nvc_timesteps"] + 1
     timestep_change = dict_meta["timestep_change"] + 1
-    color_change_index = [timestep_change,] * num_trials
+    color_change_index = [timestep_change + 1,] * num_trials
     
     dict_meta_trials = {
         "idx": list(range(num_trials)),

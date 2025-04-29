@@ -96,7 +96,7 @@ def last_visible_color(
 
 def load_human_trial_raw_data(
     run_name,
-    dir_human_task=index.dir_data / "hmdcpd",
+    dir_human_task=index.dir_repo / "data/hmdcpd",
 ):
     # Need the overall task metadata df and pkl
     # Verify and load
@@ -190,7 +190,7 @@ def load_human_trial_raw_data(
 def load_participant_raw_data(
     run_name,
     participant_id,
-    dir_human_task=index.dir_data / "hmdcpd",
+    dir_human_task=index.dir_repo / "data/hmdcpd",
     dir_task_public=index.dir_repo.parent / "human-mdcpd-honeycomb/public",
     valid_colors={1: "red", 2: "green", 3: "blue"},
     validate=True,
@@ -267,7 +267,7 @@ def load_participant_raw_data(
 
 def load_model_trial_raw_data(
     run_name,
-    dir_human_task=index.dir_data / "hmdcpd",
+    dir_human_task=index.dir_repo / "data/hmdcpd",
     rename_iom_columns=("ibo",),
 ):
 

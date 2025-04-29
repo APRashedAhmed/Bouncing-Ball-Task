@@ -1774,7 +1774,7 @@ class BouncingBallTask:
     def animate(
         self,
         arrays: Optional[Union[tuple[torch.Tensor], torch.Tensor]] = None,
-        path_dir: Union[Path, str] = index.dir_data / "temp/bouncing_ball/",
+        path_dir: Union[Path, str] = "/tmp/bouncing_ball/",
         name: str = "animation",
         save_animation: bool = False,
         save_target: bool = False,

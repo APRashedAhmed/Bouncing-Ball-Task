@@ -24,7 +24,7 @@ class ModelDatasetParameters(HumanDatasetParameters):
     
     num_pos_x_endpoints: Optional[int] = None
     num_pos_x_linspace_bounce: Optional[int] = None
-    total_videos: Optional[int] = 12000
+    total_videos: Optional[int] = 18000
 
 @dataclass
 class NongrayDatasetParameters(ModelDatasetParameters):
