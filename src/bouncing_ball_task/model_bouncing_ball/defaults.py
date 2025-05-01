@@ -13,6 +13,7 @@ from bouncing_ball_task.human_bouncing_ball.defaults import (
 
 name_dataset: str = "mbb_dataset"
 
+
 @dataclass
 class ModelDatasetParameters(HumanDatasetParameters):
     total_dataset_length: Optional[int] = None
@@ -26,10 +27,12 @@ class ModelDatasetParameters(HumanDatasetParameters):
     num_pos_x_linspace_bounce: Optional[int] = None
     total_videos: Optional[int] = 18000
 
+    
 @dataclass
 class NongrayDatasetParameters(ModelDatasetParameters):
     ncc_nvc_timesteps: int = 20
     timestep_change: int = ncc_nvc_timesteps // 2
-    timestep_from_wall: int = 5    
+    timestep_from_wall: int = 5
+
     
 _pyutils.register_defaults(globals())

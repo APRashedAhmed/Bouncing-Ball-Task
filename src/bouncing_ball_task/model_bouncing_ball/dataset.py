@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-
 from bouncing_ball_task import index
 from bouncing_ball_task.constants import default_idx_to_color_dict
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
@@ -23,23 +22,19 @@ from bouncing_ball_task.model_bouncing_ball.ncc_rvc import generate_ncc_rvc_tria
 from bouncing_ball_task.model_bouncing_ball.cc_rvc import generate_cc_rvc_trials
 
 
-dict_trial_type_generation_funcs = {
-    "ncc_nvc": generate_ncc_nvc_trials,
-    "cc_nvc": generate_cc_nvc_trials,
-    "ncc_vc": generate_ncc_vc_trials,
-    "cc_vc": generate_cc_vc_trials,
-    "ncc_rvc": generate_ncc_rvc_trials,
-    "cc_rvc": generate_cc_rvc_trials,
-}
-trial_types = tuple(key for key, _ in dict_trial_type_generation_funcs.items())
-
-
 def generate_model_dataset_nongray(
-    model_dataset_parameters,
-    task_parameters,    
+    model_dataset_parameters=defaults.NongrayDatasetParameters.asdict,
+    task_parameters=defaults.TaskParameters.asdict,    
     shuffle=True,
     validate=True,
-    dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
+    dict_trial_type_generation_funcs={
+        "ncc_nvc": generate_ncc_nvc_trials,
+        "cc_nvc": generate_cc_nvc_trials,
+        "ncc_vc": generate_ncc_vc_trials,
+        "cc_vc": generate_cc_vc_trials,
+        "ncc_rvc": generate_ncc_rvc_trials,
+        "cc_rvc": generate_cc_rvc_trials,
+    },
 ):
     task, output_samples, output_targets, df_data, dict_metadata = hds.generate_video_dataset(
         model_dataset_parameters,
@@ -59,7 +54,7 @@ def generate_model_dataset_nongray(
     df_data["Start Color"] = color_final_prev[np.arange(len(cc)), cc]
 
     return task, output_samples, output_targets, df_data, dict_metadata
-    
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -98,7 +93,7 @@ if __name__ == "__main__":
     task, samples, targets, df_data, dict_metadata = generate_model_dataset_nongray(
         model_dataset_parameters,
         task_parameters,
-        dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
+        # dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
         shuffle=False,
     )
 
