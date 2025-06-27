@@ -31,10 +31,10 @@ class TaskParameters:
     min_t_velocity_change_after_random: int = 10
     
     warmup_t_no_rand_velocity_change: int = 30
-    warmup_t_no_rand_color_change: int = 2    
+    warmup_t_no_rand_color_change: int = 2 
     
     color_sampling: str = "fixed"
-    color_mask_mode: str = "inner"
+    color_mask_mode: str = "outer"
     
     initial_timestep_is_changepoint: bool = False
     initial_velocity_points_away_from_grayzone: bool = True

@@ -29,9 +29,9 @@ class HumanDatasetParameters:
     mask_fraction: float = TaskParameters.mask_fraction
 
     total_dataset_length: int = 35
-    num_blocks: int = 25
+    num_blocks: int = 10
     variable_length: bool = True
-    duration: int = 30
+    duration: int = 50
     trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.05, -2, -1, -1)
     # trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.01, 0.01, 0.01, -1)
     # trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.01, 0.01, -1, -1)
