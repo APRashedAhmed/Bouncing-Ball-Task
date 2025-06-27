@@ -91,6 +91,7 @@ def save_gif(
     return_path: bool = False,
     include_timestep: bool = True,
     as_mp4=False,
+    font_size=25
 ):
     name_split = name.split(".")
     video_name = name_split[0]
@@ -115,14 +116,14 @@ def save_gif(
     if include_timestep:
         longest_text = f"t = {len(sample_images)}"
         font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/freefont/FreeMono.ttf", size=25
+            "/usr/share/fonts/truetype/freefont/FreeMono.ttf", size=font_size,
         )
         draw = ImageDraw.Draw(sample_images[0])
-        text_width, text_height = draw.textsize(longest_text, font)
+        text_width = draw.textlength(longest_text, font=font)
         image_width, image_height = sample_images[0].size
         [
             ImageDraw.Draw(img).text(
-                (image_width - text_width, image_height - text_height),
+                (image_width - text_width, image_height - font_size),
                 f"t = {t}",
                 color="white",
                 font=font,

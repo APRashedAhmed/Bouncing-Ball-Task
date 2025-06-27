@@ -41,11 +41,12 @@ def generate_straight_trials(
     multipliers = np.arange(1, num_pos_x_endpoints + 1)
     time_x_diff = diff / (final_velocity_x_magnitude * dt)
     position_y_diff = final_velocity_y_magnitude_linspace * time_x_diff * dt
-
+    idx_grayzone_pos = list(range(num_pos_x_endpoints))
+    
     indices_time_in_grayzone = dict_meta_trials["idx_time"] = pyutils.repeat_sequence(
-        np.arange(num_pos_x_endpoints),
+        np.array(idx_grayzone_pos), # + idx_grayzone_pos[1:]),
         num_trials,
-        shuffle=False,
+        shuffle=True,
     ).astype(int)
 
     (

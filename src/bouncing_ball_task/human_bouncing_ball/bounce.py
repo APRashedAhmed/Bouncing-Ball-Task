@@ -28,7 +28,7 @@ def generate_bounce_trials(
 
     # num_pos_y_endpoints = dict_meta["num_pos_y_endpoints"]    
     num_pos_x_linspace_bounce = dict_meta["num_pos_x_linspace_bounce"]
-    idx_linspace_bounce = dict_meta["idx_linspace_bounce"] - 1
+    idx_linspace_bounce = dict_meta["idx_linspace_bounce"]
     bounce_timestep = dict_meta["bounce_timestep"]   
     repeat_factor = dict_meta["repeat_factor"]
     border_tolerance_inner = dict_meta["border_tolerance_inner"] 
@@ -60,7 +60,7 @@ def generate_bounce_trials(
     velocity_x_sign = 2 * sides_left_right - 1
     velocity_y_sign = 2 * sides_top_bottom - 1
 
-    # Find the locations where the ball will randomly bounce
+    # Find the locations where the ball will bounce
     pos_x_bounce_linspace = np.linspace(
         mask_start + (border_tolerance_inner + 1) * ball_radius,
         mask_end - (border_tolerance_inner + 1) * ball_radius,
@@ -74,7 +74,7 @@ def generate_bounce_trials(
     pos_x_bounce_trials = pos_x_bounce[sides_left_right]
     distance_x_to_bounce = bounce_timestep * final_velocity_x_magnitude * dt
     final_x_positions = pos_x_bounce_trials - velocity_x_sign * distance_x_to_bounce
-    
+
     # Keep track of position counts
     unique_x_positions, _ = dict_meta_type["final_x_positions"] = np.unique(
         final_x_positions,

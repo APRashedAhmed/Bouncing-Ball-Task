@@ -18,6 +18,7 @@ class TaskParameters(_BaseTaskParameters):
     sequence_mode: str = "reverse"
     target_future_timestep: int = 0
     sample_velocity_discretely: bool = True
+    
 
 @dataclass
 class HumanDatasetParameters:
@@ -31,34 +32,36 @@ class HumanDatasetParameters:
     num_blocks: int = 25
     variable_length: bool = True
     duration: int = 30
-    trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.05, -1, -1, -1)
-    video_length_min_s: float = 6.0
-    exp_scale: float = 1.75
+    trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.05, -2, -1, -1)
+    # trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.01, 0.01, 0.01, -1)
+    # trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.01, 0.01, -1, -1)
+    video_length_min_s: float = 7.5
+    exp_scale: float = 5.0
     standard: bool = True
     catch_ncc_nvc_timesteps: int = 20
 
-    pvc: float = 0.025
-    pccnvc_lower: float = 0.0065
-    pccnvc_upper: float = 0.1
-    pccovc_lower: float = 0.1
-    pccovc_upper: float = 0.925
+    pvc: float = 0.075
+    pccnvc_lower: float = 0.015
+    pccnvc_upper: float = 0.05
+    pccovc_lower: float = 0.125
+    pccovc_upper: float = 0.875
     num_pccnvc: int = 2
     num_pccovc: int = 3
 
     num_y_velocities: int = 2
-    velocity_lower: float = 0.08
-    velocity_upper: float = 0.1333333333
+    velocity_lower: float = 0.0975
+    velocity_upper: float = 0.1125
 
     num_pos_x_endpoints: int = 3
     num_pos_y_endpoints: int = 8
     y_pos_multiplier: int = 8
     bounce_offset: float = 2/5
     border_tolerance_outer: float = 1.25
-    border_tolerance_inner: float = 1.0
+    border_tolerance_inner: float = 0.1
 
     num_pos_x_linspace_bounce: int = 5
-    idx_linspace_bounce: int = 1
-    bounce_timestep: int = 7    
+    idx_linspace_bounce: int = 0
+    bounce_timestep: int = 5
     repeat_factor: int = 3
     
     total_videos: Optional[int] = None

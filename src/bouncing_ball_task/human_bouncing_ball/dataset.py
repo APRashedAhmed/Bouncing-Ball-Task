@@ -62,17 +62,17 @@ def generate_video_dataset(
     
     task_parameters = copy.deepcopy(task_parameters)
     
-    task_parameters["target_future_timestep"] = defaults.target_future_timestep
+    # task_parameters["target_future_timestep"] = defaults.target_future_timestep
     task_parameters["sequence_length"] = dict_metadata["video_length_max_f"]
-    task_parameters["sample_velocity_discretely"] = defaults.sample_velocity_discretely
-    task_parameters["initial_velocity_points_away_from_grayzone"] = defaults.initial_velocity_points_away_from_grayzone
-    task_parameters["initial_timestep_is_changepoint"] = defaults.initial_timestep_is_changepoint
-    task_parameters["min_t_color_change_after_bounce"] = defaults.min_t_color_change_after_bounce
-    task_parameters["min_t_velocity_change_after_bounce"] = defaults.min_t_velocity_change_after_bounce
-    task_parameters["min_t_color_change_after_random"] = defaults.min_t_color_change_after_random
-    task_parameters["min_t_velocity_change_after_random"] = defaults.min_t_velocity_change_after_random
-    task_parameters["warmup_t_no_rand_velocity_change"] = defaults.warmup_t_no_rand_velocity_change
-    task_parameters["warmup_t_no_rand_color_change"] = defaults.warmup_t_no_rand_color_change
+    # task_parameters["sample_velocity_discretely"] = defaults.sample_velocity_discretely
+    # task_parameters["initial_velocity_points_away_from_grayzone"] = defaults.initial_velocity_points_away_from_grayzone
+    # task_parameters["initial_timestep_is_changepoint"] = defaults.initial_timestep_is_changepoint
+    # task_parameters["min_t_color_change_after_bounce"] = defaults.min_t_color_change_after_bounce
+    # task_parameters["min_t_velocity_change_after_bounce"] = defaults.min_t_velocity_change_after_bounce
+    # task_parameters["min_t_color_change_after_random"] = defaults.min_t_color_change_after_random
+    # task_parameters["min_t_velocity_change_after_random"] = defaults.min_t_velocity_change_after_random
+    # task_parameters["warmup_t_no_rand_velocity_change"] = defaults.warmup_t_no_rand_velocity_change
+    # task_parameters["warmup_t_no_rand_color_change"] = defaults.warmup_t_no_rand_color_change
     
     task_parameters["sample_mode"] = defaults.sample_mode
     task_parameters["target_mode"] = defaults.target_mode

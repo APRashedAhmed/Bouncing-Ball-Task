@@ -330,6 +330,7 @@ def compute_dataset_size_time_based(
         duration,
         trial_types,
         min_length_catch=True,
+        max_length_mult=3,
 ):
     max_ds_length_ms = remaining_ds_lenth_ms = total_ds_length * 60 * 1000  # * s * ms
     dict_num_trials_type, dict_video_lengths_f_type = {}, {}
@@ -344,7 +345,7 @@ def compute_dataset_size_time_based(
 
         # Define the max possible number of videos for this trial type
         max_length_trial_type_ms = p_split * max_ds_length_ms
-        max_video_num = np.rint(max_length_trial_type_ms / video_length_min_ms).astype(int)
+        max_video_num = 2 * np.rint(max_length_trial_type_ms / video_length_min_ms).astype(int)
 
         # Sample exponential lengths for this number of videos
         if trial_type == "catch" and min_length_catch:
@@ -355,9 +356,13 @@ def compute_dataset_size_time_based(
                 np.random.exponential(exp_scale_ms, max_video_num)
                 + video_length_min_ms
             )
+
+        if max_length_mult != 1:
+            max_video_lengths_ms = max_video_lengths_ms[max_video_lengths_ms < video_length_min_ms * max_length_mult]
+       
         # Convert ms to frames for each video
         max_video_lengths_f = np.rint(max_video_lengths_ms / duration).astype(int)
-        
+
         # Calculate how much time each video adds to the overall trial type
         cumsum_video_lengths = np.cumsum(max_video_lengths_ms)
 
@@ -557,7 +562,7 @@ def generate_initial_dict_metadata(
             num_pos_x_endpoints,
             endpoint=True,
         )
-    
+
         # Final x position linspaces that correspond to approaching from each side
         x_grayzone_linspace_reversed = x_grayzone_linspace[::-1]
         dict_metadata["x_grayzone_linspace_sides"] = np.vstack(
@@ -631,8 +636,8 @@ def compute_trial_color_and_stats(
     final_color = pyutils.repeat_sequence(
         np.array(DEFAULT_COLORS),
         num_trials,
-        shuffle=False,
-        roll=True,
+        shuffle=True,
+        roll=False,
         shift=1,
     ).tolist()
 
@@ -657,6 +662,7 @@ def compute_trial_color_and_stats(
         # np.tile(pccovc_linspace, num_pccnvc),
         num_trials,
         shuffle=False,
+        # roll=True,
     ).tolist()
 
     # Keep track of pcc counts

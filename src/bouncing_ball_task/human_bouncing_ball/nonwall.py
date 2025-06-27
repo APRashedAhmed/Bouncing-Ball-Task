@@ -64,10 +64,11 @@ def generate_nonwall_trials(
     )
     
     # Binary array for whether the ball would have an x or y bounce
-    bounce_x_y = pyutils.repeat_sequence(
-        np.array([0, 1] * repeat_factor),
-        num_trials,
-    ).astype(int)
+    # bounce_x_y = pyutils.repeat_sequence(
+    #     np.array([0, 1] * repeat_factor),
+    #     num_trials,
+    # ).astype(int)
+    bounce_x_y = np.zeros(num_trials).astype(int)    
     dict_meta_trials["bounce_x_y"] = bounce_x_y.tolist()
 
     # Define the forced velocity changes 
@@ -171,6 +172,8 @@ def generate_nonwall_trials(
         pccnvc,
         pccovc,
         dict_meta["pvc"],
+        bounce_index_x=bounce_index_x,
+        bounce_index_y=bounce_index_y,
         dict_meta_trials=dict_meta_trials,
     )
 
@@ -181,7 +184,7 @@ def generate_nonwall_trials(
             duration,
             use_logger=use_logger,
         )
-        
+
     return trials, dict_meta_type
 
 
