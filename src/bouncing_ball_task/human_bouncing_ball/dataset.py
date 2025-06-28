@@ -649,7 +649,7 @@ def save_video_dataset(
     else:
         logger.info(msg)
         with open(str(path_dataset_meta), "wb") as handle:
-            pickle.dump(dict_metadata, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(dict_metadata, handle)
 
     path_videos = []
     sample_columns = ["x", "y", "r", "g", "b"]
