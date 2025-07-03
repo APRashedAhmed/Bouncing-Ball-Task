@@ -28,7 +28,7 @@ class HumanDatasetParameters:
     mask_center: int = TaskParameters.mask_center
     mask_fraction: float = TaskParameters.mask_fraction
 
-    total_dataset_length: int = 35
+    total_dataset_length: int = 30
     num_blocks: int = 10
     variable_length: bool = True
     duration: int = 50
