@@ -61,10 +61,10 @@ def last_visible_color(
     # Create a boolean tensor indicating whether the timestep is within the
     # middle gray region or not
     x_coords = samples[:, :, 0]  # Extract the x-coordinates
-    if time_step_mode.lower() == "mid":
+    if time_step_mode.lower() == "centroid":
         out_mask = ~(
-            (x_coords >= (mask_start - tol))
-            & (x_coords <= (mask_end + tol))
+            (x_coords > (mask_start - tol))
+            & (x_coords < (mask_end + tol))
         )
     elif time_step_mode.lower() == "inner":
         out_mask = ~(

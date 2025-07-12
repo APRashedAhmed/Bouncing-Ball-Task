@@ -51,9 +51,17 @@ class BouncingBallTask:
         "preset",  # Outputs a static provided sequence
     }
     valid_color_mask_modes = {
-        "outer",  # Applies the mask when the outer circle edge touches the grayzone
-        "inner",  # Applies the mask when the inner circle edge touches the grayzone
-        "fade",  # Fades the color of the grayzone as a function of diameter inside the grayzone
+        "outer",
+        # Applies the mask when the ball touches the outer portion of the
+        # grayzone. Results in the longest amount of grayzone time
+        "inner",
+        # Applies the mask when the ball is fully within the grayzone. Results
+        # in the shortest time in the grayzone
+        "centroid", # Applies the mask when the centroid passes the grayzone
+        "fade",
+        # Fades the color of the grayzone as a function of diameter inside the
+        # grayzone. Color is a weighted sum of gray and the current color while
+        # transitioning 
     }
     valid_transitioning_change_modes = { # Behavior for transitions into the grayzone
         "all", # Random changes are fully allowed as the ball transitions
@@ -105,6 +113,7 @@ class BouncingBallTask:
         reset_after_iter: bool = False,
         min_t_color_change_after_random: int = 5,
         min_t_color_change_after_bounce: int = 5,
+        min_t_bounce_color_change_after_random: int = 3,
         min_t_velocity_change_after_random: int = 5,
         min_t_velocity_change_after_bounce: int = 5,
         warmup_t_no_rand_color_change: int = 3,
@@ -144,6 +153,7 @@ class BouncingBallTask:
         
         self.min_t_color_change_after_random = min_t_color_change_after_random
         self.min_t_color_change_after_bounce = min_t_color_change_after_bounce
+        self.min_t_bounce_color_change_after_random = min_t_bounce_color_change_after_random        
         self.min_t_velocity_change_after_random = min_t_velocity_change_after_random
         self.min_t_velocity_change_after_bounce = min_t_velocity_change_after_bounce
         self.warmup_t_no_rand_color_change = warmup_t_no_rand_color_change
@@ -202,8 +212,8 @@ class BouncingBallTask:
         self.num_pccnvc = num_pccnvc
         self.num_pccovc = num_pccovc
 
-        self.preset_samples = samples
-        self.preset_targets = targets
+        self._preset_samples = samples
+        self._preset_targets = targets
 
         self.sequence = []  # Only used in static mode
 
@@ -433,6 +443,26 @@ class BouncingBallTask:
         self._color_sampling = value
 
     @property
+    def preset_samples(self):
+        return self._preset_samples
+
+    @preset_samples.setter
+    def preset_samples(self, samples):
+        self._preset_samples = samples
+        if hasattr(self, "_sequence_mode") and self.sequence_mode:
+            self.sequence_mode = "preset"
+
+    @property
+    def preset_targets(self):
+        return self._preset_targets
+
+    @preset_targets.setter
+    def preset_targets(self, targets):
+        self._preset_targets = targets
+        if hasattr(self, "_sequence_mode") and self.sequence_mode == "preset":
+            self.sequence_mode = "preset"
+        
+    @property
     def sequence_mode(self) -> str:
         return self._sequence_mode
 
@@ -444,6 +474,9 @@ class BouncingBallTask:
             raise ValueError(
                 f"Invalid sequence_mode: {mode}. Must be one of {self.valid_sequence_modes}."
             )
+        # if mode == "preset":
+        #     import ipdb; ipdb.set_trace()
+        
         self._sequence_mode = mode
 
         if self.sequence_mode == "preset":
@@ -454,6 +487,8 @@ class BouncingBallTask:
                 self.preset_targets.transpose(1, 0, 2),
             ))
             self.sequence_length = len(self.sequence) + self.target_future_timestep
+            self._samples = self.preset_samples
+            self._targets = self.preset_targets 
 
         # Reset all the relevant downstream parameters and run through the
         # sequence once for specific modes but dont run it when the obj is
@@ -496,7 +531,7 @@ class BouncingBallTask:
             )
         self._transitioning_change_mode = mode
         if mode == "all":
-            self.transition_value = np.Inf
+            self.transition_value = np.inf
         elif mode == "half":
             self.transition_value = self.ball_radius
         elif mode == None:
@@ -790,6 +825,22 @@ class BouncingBallTask:
                     f"Variable 'target_mode' must be one of {self.valid_output_modes}"
                 )
             self._target_mode = mode
+
+    @property
+    def model_samples(self):
+        samples = self.samples.copy()
+        positions_samples = samples[:, :, 0]
+        mask_locations_samples = (
+            self.infer_grayzone_locations(positions_samples, mode="outer")
+            & ~self.infer_grayzone_locations(positions_samples, mode="inner")
+        )
+        positions_targets = self.targets[:, :, 0]
+        mask_locations_targets = (
+            self.infer_grayzone_locations(positions_targets, mode="outer")
+            & ~self.infer_grayzone_locations(positions_targets, mode="inner")
+        )
+        samples[mask_locations_samples, 2:] = self.targets[mask_locations_targets, 2:5]
+        return samples
 
     def sample_position(self) -> np.ndarray:
         """Sample positions of a ball in the arena avoiding gray zone.
@@ -1142,33 +1193,82 @@ class BouncingBallTask:
                 colors,
             )
 
-        elif self.color_mask_mode == "outer":
-            # Find mask locations within the specified range
-            mask_locations = np.logical_and(
-                self.mask_start - self.ball_radius <= x_positions,
-                x_positions <= self.mask_end + self.ball_radius,
+        else:
+            mask_locations = self.infer_grayzone_locations(
+                x_positions,
+                mode=self.color_mask_mode,
             )
-            # Apply the mask color to the selected locations
             masked_colors = np.copy(colors)
             masked_colors[mask_locations] = self.mask_color
             return masked_colors
 
-        elif self.color_mask_mode == "inner":
-            # Find mask locations within the specified range
-            mask_locations = np.logical_and(
-                self.mask_start + self.ball_radius <= x_positions,
-                x_positions <= self.mask_end - self.ball_radius,
+        # elif self.color_mask_mode == "outer":
+        #     # Find mask locations within the specified range
+        #     mask_locations = np.logical_and(
+        #         self.mask_start - self.ball_radius <= x_positions,
+        #         x_positions <= self.mask_end + self.ball_radius,
+        #     )
+        #     # Apply the mask color to the selected locations
+        #     masked_colors = np.copy(colors)
+        #     masked_colors[mask_locations] = self.mask_color
+        #     return masked_colors
+
+        # elif self.color_mask_mode == "inner":
+        #     # Find mask locations within the specified range
+        #     mask_locations = np.logical_and(
+        #         self.mask_start + self.ball_radius <= x_positions,
+        #         x_positions <= self.mask_end - self.ball_radius,
+        #     )
+        #     # Apply the mask color to the selected locations
+        #     masked_colors = np.copy(colors)
+        #     masked_colors[mask_locations] = self.mask_color
+        #     return masked_colors
+
+        # elif self.color_mask_mode == "centroid":
+        #     # Find mask locations within the specified range
+        #     mask_locations = np.logical_and(
+        #         self.mask_start < x_positions,
+        #         x_positions < self.mask_end,
+        #     )
+        #     # Apply the mask color to the selected locations
+        #     masked_colors = np.copy(colors)
+        #     masked_colors[mask_locations] = self.mask_color
+        #     return masked_colors        
+
+        # else:
+        #     raise ValueError(
+        #         f"color_mask_mode must be one of '{self.valid_color_mask_modes}'"
+        #         f"but is set to '{self.color_mask_mode}'"
+        #     )
+
+    def infer_grayzone_locations(self, positions, mode=None):
+        if mode is None:
+            mode = self.color_mask_mode
+
+        if mode == "outer":
+            return np.logical_and(
+                self.mask_start - self.ball_radius <= positions,
+                positions <= self.mask_end + self.ball_radius,
             )
-            # Apply the mask color to the selected locations
-            masked_colors = np.copy(colors)
-            masked_colors[mask_locations] = self.mask_color
-            return masked_colors
+
+        elif mode == "inner" or mode == "fade":
+            return np.logical_and(
+                self.mask_start + self.ball_radius <= positions,
+                positions <= self.mask_end - self.ball_radius,
+            )
+
+        elif mode == "centroid":
+            return np.logical_and(
+                self.mask_start < positions,
+                positions < self.mask_end,
+            )
 
         else:
             raise ValueError(
-                f"color_mask_mode must be one of '{self.valid_color_mask_modes}'"
-                f"but is set to '{self.color_mask_mode}'"
+                f"Invalid mode passed: '{mode}'. Must be one of "
+                f"{self.valid_color_mask_modes}"
             )
+        
 
     def __len__(self):
         return self.sequence_length - self.target_future_timestep
@@ -1466,6 +1566,16 @@ class BouncingBallTask:
                 t + 1 : t + self.min_t_color_change_after_random + 1,
                 color_change_array[t, :, 1],
                 1
+            ] = 1.0
+
+            # import ipdb; ipdb.set_trace()
+
+            # Set chance for bounce color change to be 0 for sequences where
+            # there was a color change
+            rand_for_color[
+                t + 1 : t + self.min_t_bounce_color_change_after_random + 1,
+                color_change_array[t, :, 1],
+                0
             ] = 1.0
 
             # Step the color forward in time
