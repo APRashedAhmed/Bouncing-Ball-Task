@@ -456,14 +456,9 @@ def shorten_trials_and_update_meta(
         )
         output_data.append(meta_trial)
     
-    # if variable_length:
-    #     timesteps = np.array([target.shape[0] for target in output_targets])
-        
-        # change_sums = np.array([target.sum(axis=0) for target in output_targets])[:, -4:] 
-   # else:
     if not variable_length:
         output_samples = samples
-        output_model_samples = model_samples
+        output_model_samples = task.model_samples
         output_targets = targets
         # timesteps = np.array([output_targets.shape[1]] * output_targets.shape[0])
         # change_sums = output_targets[:, :, -4:].sum(axis=1)
