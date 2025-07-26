@@ -1,5 +1,5 @@
 """Human task defaults"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Union
 from bouncing_ball_task.utils import pyutils as _pyutils
 from bouncing_ball_task.defaults import TaskParameters as _BaseTaskParameters
@@ -32,25 +32,25 @@ class HumanDatasetParameters:
     num_blocks: int = 10
     variable_length: bool = True
     duration: int = 50
-    trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.05, -2, -1, -1)
+    trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.05, -1, -1, 0)
     # trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.01, 0.01, 0.01, -1)
     # trial_type_split: tuple[Optional[Union[int, float]], ...] = (0.01, 0.01, -1, -1)
     video_length_min_s: float = 7.5
-    exp_scale: float = 5.0
+    exp_scale: float = 3.75
     standard: bool = True
     catch_ncc_nvc_timesteps: int = 20
 
     pvc: float = 0.075
-    pccnvc_lower: float = 0.015
-    pccnvc_upper: float = 0.05
-    pccovc_lower: float = 0.125
-    pccovc_upper: float = 0.875
+    pccnvc_lower: float = 0.00875
+    pccnvc_upper: float = 0.15
+    pccovc_lower: float = 0.05
+    pccovc_upper: float = 0.95
     num_pccnvc: int = 2
     num_pccovc: int = 3
 
     num_y_velocities: int = 2
-    velocity_lower: float = 0.0975
-    velocity_upper: float = 0.1125
+    velocity_lower: float = 0.1
+    velocity_upper: float = 0.12
 
     num_pos_x_endpoints: int = 3
     num_pos_y_endpoints: int = 8
@@ -70,6 +70,10 @@ class HumanDatasetParameters:
     use_logger: bool = False
     print_stats: bool = True
     seed: Optional[int] = None
+    hz_effective: dict = field(default_factory=lambda: {
+        'Low': 0.005331456265398958,
+        'High': 0.037610398930572435,
+    })    
 
 
 _pyutils.register_defaults(globals())

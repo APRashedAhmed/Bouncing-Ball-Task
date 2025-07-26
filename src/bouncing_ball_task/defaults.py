@@ -24,11 +24,11 @@ class TaskParameters:
     return_change: bool = True
     return_change_mode: str = "source"
 
-    min_t_color_change_after_bounce: int = 10
-    min_t_color_change_after_random: int = 10
+    min_t_color_change_after_bounce: int = 15
+    min_t_color_change_after_random: int = 15
     
     min_t_velocity_change_after_bounce: int = 30
-    min_t_velocity_change_after_random: int = 10
+    min_t_velocity_change_after_random: int = 15
 
     min_t_bounce_color_change_after_random: int = 5
     
