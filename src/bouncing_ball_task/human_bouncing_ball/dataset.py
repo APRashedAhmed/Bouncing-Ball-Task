@@ -697,7 +697,7 @@ def estimate_effective_hazard_rates(
     
     dataset_parameters["total_dataset_length"] *= estimate_mult
     
-    task, output_samples, output_targets, df_data, dict_metadata = generate_video_dataset(
+    task, output_samples, output_model_samples, output_targets, df_data, dict_metadata = generate_video_dataset(
         dataset_parameters,
         task_parameters, 
         dict_trial_type_generation_funcs,
