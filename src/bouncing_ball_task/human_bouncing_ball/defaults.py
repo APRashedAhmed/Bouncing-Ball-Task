@@ -40,7 +40,7 @@ class HumanDatasetParameters:
     standard: bool = True
     catch_ncc_nvc_timesteps: int = 20
 
-    pvc: float = 0.075
+    pvc: float = 0.0
     pccnvc_lower: float = 0.00875
     pccnvc_upper: float = 0.15
     pccovc_lower: float = 0.05

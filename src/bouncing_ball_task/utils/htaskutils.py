@@ -390,6 +390,7 @@ def compute_dataset_size_video_based(
         duration,
         trial_types,
         min_length_catch=True,
+        max_length_mult=3,
 ):
     dict_num_trials_type, dict_video_lengths_f_type = {}, {}
 
@@ -410,13 +411,20 @@ def compute_dataset_size_video_based(
             dict_video_lengths_f_type[trial_type] = np.ones(num_trials).astype(int) * video_length_min_f
             
         else:
-            dict_video_lengths_f_type[trial_type] = np.rint(
+            max_video_lengths_f = np.rint(
                 (
-                    np.random.exponential(exp_scale_ms, num_trials)
+                    np.random.exponential(exp_scale_ms, num_trials * 3)
                     + video_length_min_ms
                 )
                 / duration
             ).astype(int)
+
+            if max_length_mult != 1:
+                max_video_lengths_f = max_video_lengths_f[
+                    max_video_lengths_f < video_length_min_f * max_length_mult
+                ]
+                
+            dict_video_lengths_f_type[trial_type] = max_video_lengths_f[:num_trials]
     
     return dict_num_trials_type, dict_video_lengths_f_type
 
