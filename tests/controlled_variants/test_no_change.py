@@ -23,8 +23,8 @@ class TestNoChangeVariant(BaseVariantTests):
         """Provide variant dataset for base class tests."""
         return controlled_dataset_small
     
-    def test_no_color_changes_in_samples(self, controlled_dataset_small):
-        """Verify that no color changes occur in any trial."""
+    def test_no_color_changes_in_target_colors(self, controlled_dataset_small):
+        """Verify that target color values remain constant across each trial."""
         targets = controlled_dataset_small['targets']
         df_data = controlled_dataset_small['df_data']
         

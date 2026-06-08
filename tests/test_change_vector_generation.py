@@ -79,7 +79,11 @@ class TestChangeVectorGeneration:
         for i in range(len(samples)):
             sample_colors = samples[i, :, 2:5]  # RGB values
             target_colors = targets[i, :, 2:5]
-            
+
+            # Sample colors must stay within the valid RGB range
+            assert np.all((sample_colors >= 0) & (sample_colors <= 255)), \
+                f"Sample colors out of [0, 255] range in trial {i}"
+
             # Initial color
             initial_color = target_colors[0]
             
