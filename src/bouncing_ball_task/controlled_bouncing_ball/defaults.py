@@ -36,7 +36,7 @@ class ControlledTaskParameters:
     # Rendering parameters
     mask_start: int = 56
     mask_end: int = 200
-    mask_color: tuple[int, int, int] = (128, 128, 128)
+    mask_color: tuple[int, int, int] = (127, 127, 127)
     
     # Advanced options
     sequence_mode: str = "reverse"

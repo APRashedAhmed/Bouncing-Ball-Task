@@ -35,18 +35,14 @@ def generate_model_dataset_nongray(
         "ncc_rvc": generate_ncc_rvc_trials,
         "cc_rvc": generate_cc_rvc_trials,
     },
-        *args,
-        **kwargs,
 ):
     task, output_samples, output_model_samples, output_targets, df_data, dict_metadata = hds.generate_video_dataset(
         model_dataset_parameters,
-        task_parameters, 
+        task_parameters,
         dict_trial_type_generation_funcs,
         shuffle=shuffle,
         validate=validate,
         defaults=defaults,
-        *args,
-        **kwargs,
     )
 
     color_final = df_data["Final Color"].values
@@ -94,7 +90,7 @@ if __name__ == "__main__":
 
     size_x, size_y = args.size_frame
 
-    task, samples, targets, df_data, dict_metadata = generate_model_dataset_nongray(
+    task, samples, model_samples, targets, df_data, dict_metadata = generate_model_dataset_nongray(
         model_dataset_parameters,
         task_parameters,
         # dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
@@ -112,6 +108,7 @@ if __name__ == "__main__":
         df_data,
         dict_metadata,
         samples,
+        model_samples,
         targets,
         task,
         duration=args.duration,

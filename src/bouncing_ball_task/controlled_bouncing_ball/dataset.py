@@ -31,7 +31,6 @@ def generate_controlled_dataset(
     controlled_dataset_parameters,
     task_parameters,
     shuffle=True,
-    validate=True,
     dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
     defaults_module=defaults,
 ):
@@ -48,10 +47,9 @@ def generate_controlled_dataset(
         controlled_dataset_parameters: Dictionary of dataset generation parameters
         task_parameters: Dictionary of task-specific parameters
         shuffle: Whether to shuffle the generated trials
-        validate: Whether to validate the generated data
         dict_trial_type_generation_funcs: Dictionary mapping trial types to generation functions
         defaults_module: Module containing default parameters
-        
+
     Returns:
         tuple: (task, output_samples, output_model_samples, output_targets, df_data, dict_metadata)
     """
@@ -59,7 +57,7 @@ def generate_controlled_dataset(
     num_base_sequences = controlled_dataset_parameters.get('num_base_sequences', 100)
     total_videos = controlled_dataset_parameters.get('total_videos', None)
     duration = controlled_dataset_parameters.get('duration', defaults_module.duration)
-    variable_length = controlled_dataset_parameters.get('variable_length', True)
+    variable_length = controlled_dataset_parameters.get('variable_length', False)
     
     # If total_videos specified, calculate num_base_sequences
     num_variants = len(dict_trial_type_generation_funcs)
@@ -251,7 +249,6 @@ def generate_controlled_dataset_with_videos(
     task_parameters,
     output_dir,
     shuffle=True,
-    validate=True,
     dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
     defaults_module=defaults,
 ):
@@ -265,7 +262,6 @@ def generate_controlled_dataset_with_videos(
         task_parameters: Dictionary of task-specific parameters
         output_dir: Directory to save the dataset
         shuffle: Whether to shuffle the generated trials
-        validate: Whether to validate the generated data
         dict_trial_type_generation_funcs: Dictionary mapping trial types to generation functions
         defaults_module: Module containing default parameters
         
@@ -277,7 +273,6 @@ def generate_controlled_dataset_with_videos(
         controlled_dataset_parameters,
         task_parameters,
         shuffle=shuffle,
-        validate=validate,
         dict_trial_type_generation_funcs=dict_trial_type_generation_funcs,
         defaults_module=defaults_module,
     )
@@ -372,8 +367,6 @@ def generate_controlled_metadata(
             "num_variants": num_variants,
             "num_colors": num_colors,
             "variants": list(dict_trial_type_generation_funcs.keys()),
-            "hazard_rate": 0.0,
-            "contingency": 0.0,
             "color_changes_allowed": False,
             "base_sequence_reuse": num_variants * num_colors,
         },
@@ -430,7 +423,7 @@ def generate_controlled_dataframe(
     # Calculate video lengths
     if variable_length:
         # Use exponential distribution for variable lengths
-        exp_scale = duration / 30  # Convert to seconds, assuming 30fps
+        exp_scale = duration / 1000  # Convert ms to seconds
         lengths = np.random.exponential(exp_scale, num_trials)
         lengths = np.clip(lengths, 1, task.sequence_length / 30)  # Clip to valid range
         lengths_frames = (lengths * 30).astype(int)  # Convert to frames
@@ -445,8 +438,10 @@ def generate_controlled_dataframe(
             final_color_names.append("red")
         elif np.allclose(rgb, [0, 255, 0]):
             final_color_names.append("green")
-        else:
+        elif np.allclose(rgb, [0, 0, 255]):
             final_color_names.append("blue")
+        else:
+            raise ValueError(f"Unrecognized RGB value: {rgb}")
     
     # Create base dataframe
     df_data = pd.DataFrame({

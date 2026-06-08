@@ -423,7 +423,13 @@ def compute_dataset_size_video_based(
                 max_video_lengths_f = max_video_lengths_f[
                     max_video_lengths_f < video_length_min_f * max_length_mult
                 ]
-                
+
+            if len(max_video_lengths_f) < num_trials:
+                raise ValueError(
+                    f"max_length_mult={max_length_mult} too restrictive: only "
+                    f"{len(max_video_lengths_f)} of {num_trials} samples survived"
+                )
+
             dict_video_lengths_f_type[trial_type] = max_video_lengths_f[:num_trials]
     
     return dict_num_trials_type, dict_video_lengths_f_type
