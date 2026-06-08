@@ -49,10 +49,9 @@ def run_no_change_validation(args):
         # Run all no_change test files
         test_dir = Path(__file__).parent
         pytest_args.extend([
-            str(test_dir / "test_no_change_comprehensive.py"),
-            str(test_dir / "test_no_change_output_format.py"),
-            str(test_dir / "test_no_change_parameters.py"),
-            str(test_dir / "test_no_change_integration.py"),
+            str(test_dir / "controlled_variants" / "test_no_change.py"),
+            str(test_dir / "test_controlled_dataset_endproduct.py"),
+            str(test_dir / "test_change_vector_generation.py"),
         ])
     
     # Add coverage if requested

@@ -37,8 +37,11 @@ pytest -m "not slow"
 The test suite is organized as follows:
 - `tests/conftest.py` - Shared fixtures for all tests
 - `tests/test_controlled_dataset_endproduct.py` - End-product validation tests
-- `tests/test_no_change_variant.py` - Tests specific to the no_change variant
 - `tests/test_change_vector_generation.py` - Tests for change vector mechanics
+- `tests/controlled_variants/` - Variant-specific tests and shared base class
+  - `tests/controlled_variants/conftest.py` - Variant-specific fixtures
+  - `tests/controlled_variants/base_variant_tests.py` - Shared base class for variant tests
+  - `tests/controlled_variants/test_no_change.py` - Tests specific to the no_change variant
 
 ### Available Fixtures
 
@@ -98,7 +101,12 @@ def generate_your_variant_trials(change_vectors, controlled_dataset_parameters,
 ```python
 dict_trial_type_generation_funcs['your_variant'] = generate_your_variant_trials
 ```
-4. Create tests in `tests/test_your_variant.py`
+4. Create tests in `tests/controlled_variants/test_your_variant.py`
+
+> **Note:** Each variant implementation must record its own `hazard_rate` and
+> `contingency` in its per-variant metadata sub-dict. These are no longer set as
+> hardcoded top-level keys in `controlled_parameters` (they were always `0.0`,
+> which is wrong for any non-zero variant).
 
 ### Important Implementation Notes
 
@@ -113,3 +121,8 @@ dict_trial_type_generation_funcs['your_variant'] = generate_your_variant_trials
 - Follow existing code patterns and conventions
 - Document new variants and their behavior
 - Ensure reproducibility with fixed seeds
+
+## Commit conventions
+
+This repo now uses [Conventional Commits](https://www.conventionalcommits.org/):
+prefix commit subjects with `fix:`, `feat:`, `refactor:`, `test:`, `docs:`, or `chore:`.

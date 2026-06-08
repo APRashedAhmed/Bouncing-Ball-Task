@@ -26,7 +26,6 @@ The repo has substantial **uncommitted work** centered on a new `controlled_boun
 
 **Repo structure (not mentioned at all):**
 - `notebooks/` — 20+ Jupyter notebooks driving dataset generation across V1–V3.2.3 (the 4.x series is current).
-- `scripts/` — contains `validate_no_change.py` (standalone validation runner).
 - `logs/` — present at top level.
 - `src/bouncing_ball_task/human_bouncing_ball/` — trial generation for human experiments (`bounce.py`, `catch.py`, `straight.py`, `nonwall.py`, `dataset.py`, `defaults.py`).
 - `src/bouncing_ball_task/model_bouncing_ball/` — 6 model variants (`cc_vc.py`, `cc_nvc.py`, `cc_rvc.py`, `ncc_vc.py`, `ncc_nvc.py`, `ncc_rvc.py`) + orchestrator + defaults. **Entirely undocumented.** The cc/ncc and vc/nvc/rvc naming is opaque without a legend.
@@ -76,7 +75,6 @@ The bulk of the uncommitted work is one coherent feature: **the controlled-datas
 - `tests/README.md`, `tests/run_validation.py`
 
 **New auxiliary:**
-- `scripts/validate_no_change.py`
 - `notebooks/4.4-Generating-V322-Dataset.py`
 
 **Modified, small (3 files):**
@@ -134,5 +132,5 @@ Answers to these determine how aggressive the Tier-2 refactor should be:
 - `pytest` from `Bouncing-Ball-Task/` — all collected tests pass.
 - `pytest -m controlled_dataset` — runs only the controlled-dataset slice.
 - `pytest tests/controlled_variants/test_no_change.py -v` — variant-specific tests pass.
-- `python scripts/validate_no_change.py` — standalone validator runs clean.
+- `conda run -n iccpd pytest tests/controlled_variants/` — variant test suite runs clean.
 - Sanity-check: updated `CLAUDE.md` repo map matches `ls src/bouncing_ball_task/`.

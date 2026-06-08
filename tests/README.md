@@ -13,7 +13,7 @@ pytest
 
 Run tests for a specific module:
 ```bash
-pytest tests/test_no_change_comprehensive.py
+pytest tests/controlled_variants/test_no_change.py
 ```
 
 Run tests with verbose output:
@@ -78,24 +78,31 @@ python tests/run_validation.py --html
 
 ## Test Organization
 
-### No-Change Variant Tests
+### Controlled Dataset Tests
 
-The controlled dataset implementation includes comprehensive tests for the no_change variant:
+The controlled dataset implementation includes the following tests:
 
-1. **test_no_change_comprehensive.py** - Main test suite covering all aspects
-2. **test_no_change_output_format.py** - Dataset structure and format validation
-3. **test_no_change_parameters.py** - Parameter enforcement validation
-4. **test_no_change_integration.py** - Integration with analysis pipeline
+1. **test_controlled_dataset_endproduct.py** - End-product validation tests
+2. **test_change_vector_generation.py** - Change vector mechanics
+3. **controlled_variants/test_no_change.py** - Tests specific to the no_change variant
+4. **controlled_variants/base_variant_tests.py** - Shared base class for variant tests
 
 ### Shared Fixtures
 
-The `conftest.py` file provides shared fixtures used across tests:
+The `tests/conftest.py` file provides shared fixtures used across tests:
 
+- `session_temp_dir` - Session-scoped temporary directory
 - `temp_output_dir` - Temporary directory for each test
-- `minimal_dataset` - Generates a minimal dataset for testing
-- `minimal_dataset_session` - Session-scoped dataset (generated once)
-- `no_save_dataset` - Dataset without file generation
-- `default_controlled_params` - Default parameter objects
+- `controlled_dataset_small` - Small controlled dataset (5 base sequences)
+- `controlled_dataset_with_videos` - Controlled dataset with saved video files
+- `multiple_variants_dataset` - Dataset generated with multiple variants
+- `default_controlled_params` - Default `ControlledDatasetParameters` instance
+- `default_task_params` - Default `ControlledTaskParameters` instance
+- `reset_random_state` - Autouse fixture that seeds NumPy to 42 before each test
+
+The `tests/controlled_variants/conftest.py` file adds variant-specific fixtures:
+
+- `no_change_dataset` - Dataset generated with only the `no_change` variant
 
 ## Writing New Tests
 
@@ -110,7 +117,7 @@ Example:
 ```python
 @pytest.mark.unit
 @pytest.mark.controlled_dataset
-def test_new_feature(minimal_dataset):
+def test_new_feature(controlled_dataset_small):
     """Test that new feature works correctly."""
     # Your test code here
     assert result == expected
