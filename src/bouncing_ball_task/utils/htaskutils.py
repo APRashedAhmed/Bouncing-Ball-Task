@@ -58,7 +58,7 @@ def print_type_stats(
     length_trial_s_min = np.round(min(trial_type_lengths_s), 1)
     length_trial_s_max = np.round(max(trial_type_lengths_s), 1)
 
-    msg = f"  Num {trial_type.title()} Trials: {len(trials)} ({length_trial_total_min} min {length_trial_total_s} sec)"
+    msg = f"  Num {trial_type} Trials: {len(trials)} ({length_trial_total_min} min {length_trial_total_s} sec)"
     if return_str:
         list_messages.append(msg)
     else:
