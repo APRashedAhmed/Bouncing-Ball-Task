@@ -174,24 +174,3 @@ def reset_random_state():
     np.random.seed(42)
     yield
     # Cleanup if needed
-
-
-def pytest_configure(config):
-    """Configure pytest with custom settings."""
-    # Add custom markers documentation
-    config.addinivalue_line(
-        "markers", "controlled_dataset: marks tests specific to controlled dataset generation"
-    )
-    config.addinivalue_line(
-        "markers", "variant: marks variant-specific tests"
-    )
-    config.addinivalue_line(
-        "markers", "no_change: marks tests specific to no_change variant"
-    )
-    # Future variant markers would go here:
-    # config.addinivalue_line(
-    #     "markers", "sudden_change: marks tests specific to sudden_change variant"
-    # )
-    # config.addinivalue_line(
-    #     "markers", "gradual_change: marks tests specific to gradual_change variant"
-    # )
