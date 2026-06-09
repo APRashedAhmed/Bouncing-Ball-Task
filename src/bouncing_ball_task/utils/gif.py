@@ -142,13 +142,14 @@ def save_gif(
             str(path_video), fourcc, fps, sample_images[0].size
         )
 
-        for image in sample_images:
-            open_cv_image = np.array(image)
-            # Convert RGB to BGR
-            open_cv_image = open_cv_image[:, :, ::-1].copy()
-            video.write(open_cv_image)
-
-        video.release()
+        try:
+            for image in sample_images:
+                open_cv_image = np.array(image)
+                # Convert RGB to BGR
+                open_cv_image = open_cv_image[:, :, ::-1].copy()
+                video.write(open_cv_image)
+        finally:
+            video.release()
     else:
         sample_images[0].save(
             str(path_video),

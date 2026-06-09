@@ -519,7 +519,7 @@ class BouncingBallTask:
     def transitioning_change_mode(self) -> str:
         return self._transitioning_change_mode
 
-    @return_change_mode.setter
+    @transitioning_change_mode.setter
     def transitioning_change_mode(self, mode: Optional[str]):
         logger.debug("Running transitioning_change_mode setter")
         if mode is not None:
@@ -2080,7 +2080,8 @@ class BouncingBallTask:
             f"    seed={self.seed},\n"
             f"    batch_size={self.batch_size},\n"
             f"    target_future_timestep={self.target_future_timestep},\n"
-            f"    min_t_color_change={self.min_t_color_change},\n"
+            f"    min_t_color_change_after_random={self.min_t_color_change_after_random},\n"
+            f"    min_t_color_change_after_bounce={self.min_t_color_change_after_bounce},\n"
             f"    sequence_mode='{self.sequence_mode}',\n"
             f"    sample_mode='{self.sample_mode}',\n"
             f"    target_mode='{self.target_mode}',\n"
