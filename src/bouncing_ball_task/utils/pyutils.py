@@ -8,6 +8,8 @@ import shutil
 import tempfile
 import random
 import dataclasses
+import subprocess
+import importlib.metadata
 from collections.abc import Iterable
 from functools import partial, wraps
 from pathlib import Path
@@ -64,6 +66,91 @@ def set_global_seed(seed_value=None):
     os.environ['PYTHONHASHSEED'] = str(seed_value)
 
     return seed_value
+
+
+def capture_provenance(packages=("numpy", "torch", "Pillow", "opencv-python"), repo_dir=None, rng_state=None):
+    """Capture a reproducibility fingerprint for dataset metadata (audit P0-3).
+
+    Records the git HEAD SHA of the working tree, installed versions of the
+    key generation libraries, and a NumPy legacy RNG state. Callers pass the
+    PRE-draw state (captured right after set_global_seed, before the first draw)
+    via ``rng_state`` so the recorded state genuinely replays the trajectory
+    bit-for-bit (E1 option (a)); when omitted it falls back to the live state at
+    call time. All fields degrade gracefully to None / absent when the
+    underlying source is unavailable, so this never raises.
+
+    Parameters
+    ----------
+    packages : Iterable[str]
+        Distribution names to record versions for.
+    repo_dir : os.PathLike | str | None
+        Directory whose git repo to fingerprint. Defaults to the repo
+        containing this file (``Path(__file__).resolve().parent``) when None.
+        Exposed so the dirty-tree behaviour is testable against a throwaway repo
+        (dynamic-13) without depending on the checkout's own dirty/clean state.
+    rng_state : tuple | None
+        A NumPy legacy RNG state tuple (from ``np.random.get_state()``) recorded
+        verbatim — pass the PRE-draw state captured immediately after seeding so
+        the fingerprint is replayable (E1 option (a)). When None, the live state
+        at call time is captured instead.
+
+    Returns
+    -------
+    dict
+        Keys: ``git_sha`` (str | None — the 40-char HEAD SHA, suffixed with
+        ``-dirty`` when the working tree has uncommitted changes, so a dataset
+        generated from modified-but-uncommitted source is never silently
+        attributed to a clean commit), ``git_dirty`` (bool | None — True when the
+        tree was dirty, None when git is unavailable), ``library_versions``
+        (dict[str, str]), ``numpy_rng_state`` (the tuple from
+        ``np.random.get_state()``).
+    """
+    # Git HEAD SHA of the repo containing this file, plus a dirty-tree marker so
+    # provenance is never misleading when uncommitted edits produced the dataset
+    # (dynamic-13). A dirty tree appends "-dirty" to the SHA and sets git_dirty.
+    git_sha = None
+    git_dirty = None
+    try:
+        if repo_dir is None:
+            repo_dir = Path(__file__).resolve().parent
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo_dir),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        porcelain = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            cwd=str(repo_dir),
+            stderr=subprocess.DEVNULL,
+        ).decode()
+        git_dirty = bool(porcelain.strip())
+        if git_dirty:
+            git_sha = f"{git_sha}-dirty"
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        git_sha = None
+        git_dirty = None
+
+    # Installed versions of the key generation libraries.
+    library_versions = {}
+    for dist_name in packages:
+        try:
+            library_versions[dist_name] = importlib.metadata.version(dist_name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+
+    # NumPy legacy RNG state. E1 option (a): callers thread the PRE-draw state
+    # (captured right after set_global_seed, before the first initial-condition
+    # draw) via rng_state so the recorded state genuinely replays the trajectory.
+    # When rng_state is None, fall back to the live state at call time (valid but
+    # post-draw if draws have occurred since seeding).
+    numpy_rng_state = rng_state if rng_state is not None else np.random.get_state()
+
+    return {
+        "git_sha": git_sha,
+        "git_dirty": git_dirty,
+        "library_versions": library_versions,
+        "numpy_rng_state": numpy_rng_state,
+    }
 
 
 def get_unique_filename(name: str, directory: Path) -> str:

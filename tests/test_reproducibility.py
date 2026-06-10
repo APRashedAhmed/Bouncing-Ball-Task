@@ -350,3 +350,67 @@ def test_human_pipeline_seeds_once(monkeypatch):
         _adjust_labels=False, validate=False,
     )
     assert calls["n"] == 1, f"expected 1 seeding (single anchor), got {calls['n']}"
+
+
+from bouncing_ball_task.utils import pyutils
+
+
+def test_capture_provenance_structure():
+    """Provenance dict carries git SHA, library versions, and RNG state."""
+    prov = pyutils.capture_provenance()
+    assert "git_sha" in prov
+    assert prov["git_sha"] is None or isinstance(prov["git_sha"], str)
+    assert "git_dirty" in prov
+    assert prov["git_dirty"] is None or isinstance(prov["git_dirty"], bool)
+    assert "library_versions" in prov
+    assert "numpy" in prov["library_versions"]
+    assert isinstance(prov["library_versions"]["numpy"], str)
+    assert "numpy_rng_state" in prov
+    assert prov["numpy_rng_state"][0] == "MT19937"
+
+
+def test_capture_provenance_rng_state_roundtrips():
+    """The captured RNG state can be restored to reproduce subsequent draws."""
+    np.random.seed(123)
+    prov = pyutils.capture_provenance()
+    expected = np.random.random(5)
+    np.random.set_state(prov["numpy_rng_state"])
+    actual = np.random.random(5)
+    assert np.array_equal(expected, actual)
+
+
+def test_capture_provenance_marks_dirty_tree(tmp_path):
+    """A dirty working tree must surface in provenance (dynamic-13): git_sha is
+    suffixed '-dirty' and git_dirty is True, so a dataset built from
+    uncommitted source is never attributed to a clean commit.
+
+    This exercises capture_provenance's OWN return value against a throwaway
+    repo via the repo_dir parameter."""
+    import subprocess as sp
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    sp.check_call(["git", "init", "-q"], cwd=repo)
+    sp.check_call(["git", "config", "user.email", "t@t"], cwd=repo)
+    sp.check_call(["git", "config", "user.name", "t"], cwd=repo)
+    (repo / "f.txt").write_text("one")
+    sp.check_call(["git", "add", "-A"], cwd=repo)
+    sp.check_call(["git", "commit", "-qm", "init"], cwd=repo)
+    (repo / "f.txt").write_text("two")  # uncommitted edit -> dirty tree
+
+    prov = pyutils.capture_provenance(repo_dir=repo)
+    assert prov["git_sha"].endswith("-dirty")
+    assert prov["git_dirty"] is True
+
+
+def test_capture_provenance_uses_supplied_rng_state():
+    """E1 option (a): when an rng_state is supplied, capture_provenance records
+    THAT state verbatim (the pre-draw state threaded by callers), not a freshly
+    sampled live one. Advancing the global RNG after capturing `supplied` must
+    not change what the helper records."""
+    np.random.seed(555)
+    supplied = np.random.get_state()
+    np.random.random(10)  # advance the live global state so it differs
+    prov = pyutils.capture_provenance(rng_state=supplied)
+    assert prov["numpy_rng_state"][2] == supplied[2]
+    assert np.array_equal(prov["numpy_rng_state"][1], supplied[1])
