@@ -214,6 +214,7 @@ def generate_controlled_dataset(
         num_colors,
         dict_trial_type_generation_funcs,
         resolved_seed=resolved_seed,
+        rng_state=base_task.initial_rng_state,
     )
     
     # Step 13: Create DataFrame with trial information
@@ -326,6 +327,7 @@ def generate_controlled_metadata(
     num_colors,
     dict_trial_type_generation_funcs,
     resolved_seed=None,
+    rng_state=None,
 ):
     """Generate metadata dictionary for controlled dataset.
     
@@ -363,6 +365,7 @@ def generate_controlled_metadata(
         "name": name,
         "seed": seed,
         "resolved_seed": resolved_seed,
+        "provenance": pyutils.capture_provenance(rng_state=rng_state),
         "dataset_type": "controlled",
         "timestamp": timestamp,
         "total_trials": num_base_sequences * num_variants * num_colors,

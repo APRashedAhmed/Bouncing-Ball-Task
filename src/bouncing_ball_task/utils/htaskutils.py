@@ -464,10 +464,10 @@ def generate_initial_dict_metadata(
         num_pos_x_linspace_bounce,
         idx_linspace_bounce,
         bounce_timestep,
-        repeat_factor,        
+        repeat_factor,
         seed,
         min_pos_x_endpoints=2,
-        
+        rng_state=None,
         **kwargs,
 ):
     # Convenience
@@ -496,6 +496,7 @@ def generate_initial_dict_metadata(
         "idx_linspace_bounce": idx_linspace_bounce,
         "bounce_timestep": bounce_timestep,
         "repeat_factor": repeat_factor,
+        "provenance": pyutils.capture_provenance(rng_state=rng_state),
         "seed": seed,
     } | kwargs
     

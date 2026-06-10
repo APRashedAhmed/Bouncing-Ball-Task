@@ -245,6 +245,10 @@ def generate_video_parameters(
 ):
     # Set the seed
     seed = pyutils.set_global_seed(seed)
+    # E1 option (a): capture the PRE-draw RNG state right after seeding (before
+    # compute_dataset_size's exponential draw and every per-trial-type draw) so
+    # the recorded provenance replays the whole dataset's trajectory bit-for-bit.
+    initial_rng_state = np.random.get_state()
 
     # Grab the trial types that are available
     trial_types = tuple(key for key, _ in dict_trial_type_generation_funcs.items())
@@ -290,8 +294,9 @@ def generate_video_parameters(
         num_pos_x_linspace_bounce,
         idx_linspace_bounce,
         bounce_timestep,
-        repeat_factor,        
+        repeat_factor,
         seed,
+        rng_state=initial_rng_state,
         **kwargs,
     )
 

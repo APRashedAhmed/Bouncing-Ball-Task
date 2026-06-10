@@ -414,3 +414,38 @@ def test_capture_provenance_uses_supplied_rng_state():
     prov = pyutils.capture_provenance(rng_state=supplied)
     assert prov["numpy_rng_state"][2] == supplied[2]
     assert np.array_equal(prov["numpy_rng_state"][1], supplied[1])
+
+
+def test_controlled_metadata_has_provenance():
+    dp, tp = _controlled_params(seed=4242)
+    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    assert "provenance" in meta
+    assert "git_sha" in meta["provenance"]
+    assert "numpy" in meta["provenance"]["library_versions"]
+
+
+def test_controlled_provenance_rng_state_is_pre_draw():
+    """E1 option (a): the recorded provenance RNG state is the PRE-draw state
+    (right after set_global_seed, before any initial-condition draw), so
+    restoring it replays the trajectory. It must equal the state
+    set_global_seed(seed) leaves before any draw; a POST-draw state would not."""
+    dp, tp = _controlled_params(seed=4242)
+    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    recorded = meta["provenance"]["numpy_rng_state"]
+    pyutils.set_global_seed(4242)
+    expected = np.random.get_state()
+    assert recorded[0] == expected[0]                  # 'MT19937'
+    assert np.array_equal(recorded[1], expected[1])    # 624-word state vector
+    assert recorded[2] == expected[2]                  # position index
+
+
+def test_human_metadata_has_provenance():
+    dp, tp = _human_params(seed=99)
+    out = hds.generate_video_dataset(
+        dp, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=False,
+        validate=False,
+    )
+    meta = out[5]
+    assert "provenance" in meta
+    assert "git_sha" in meta["provenance"]
+    assert "numpy" in meta["provenance"]["library_versions"]
