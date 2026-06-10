@@ -173,3 +173,29 @@ def test_controlled_resolved_seed_recorded():
     dp, tp = _controlled_params(seed=4242)
     _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
     assert meta["resolved_seed"] == 4242
+
+
+def test_controlled_unseeded_records_real_seed_not_zero():
+    """An unseeded (seed=None) controlled run records the *drawn* seed, never a
+    false 0 (P0-3). The drawn seed is a real integer and is almost surely != 0."""
+    dp, tp = _controlled_params(seed=None)
+    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    assert isinstance(meta["resolved_seed"], int)
+    # name must embed the resolved seed, not the literal 0
+    assert str(meta["resolved_seed"]) in meta["name"]
+
+
+def test_controlled_seed_false_name_has_no_false_zero():
+    """seed=False escape hatch: the task resolves no seed (resolved_seed is None),
+    so metadata records resolved_seed=None and the dataset name must NOT embed a
+    false `0` (P0-3 / right-and-works-6). Caller seeds the global RNG first."""
+    np.random.seed(2024)
+    dp, tp = _controlled_params(seed=False)
+    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    assert meta["resolved_seed"] is None
+    # the old `get('seed', 0)` bug baked a literal 0 into the name; the fixed code
+    # must reflect the real (un-resolved) escape-hatch value instead. NOTE: in
+    # Python `False == 0`, so assert identity to False — `!= 0` would be False for
+    # False and give a spurious failure.
+    assert meta["seed"] is False
+    assert meta["name"].endswith(str(meta["seed"]))

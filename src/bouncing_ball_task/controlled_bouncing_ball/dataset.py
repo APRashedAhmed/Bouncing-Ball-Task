@@ -213,6 +213,7 @@ def generate_controlled_dataset(
         num_variants,
         num_colors,
         dict_trial_type_generation_funcs,
+        resolved_seed=resolved_seed,
     )
     
     # Step 13: Create DataFrame with trial information
@@ -324,6 +325,7 @@ def generate_controlled_metadata(
     num_variants,
     num_colors,
     dict_trial_type_generation_funcs,
+    resolved_seed=None,
 ):
     """Generate metadata dictionary for controlled dataset.
     
@@ -341,7 +343,12 @@ def generate_controlled_metadata(
     """
     # Generate timestamp and seed
     timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-    seed = controlled_dataset_parameters.get('seed', 0)  # Get seed from parameters
+    # P0-3: record the seed actually resolved by the task, never a false 0.
+    # resolved_seed is correct for all three contract states: a real int for
+    # seed=None/seed=int, and None for the seed=False escape hatch. Fall back to
+    # the configured seed only when no resolved seed was threaded at all.
+    seed = resolved_seed if resolved_seed is not None \
+        else controlled_dataset_parameters.get('seed')
     
     # Generate name based on variants
     variant_str = "_".join(sorted(dict_trial_type_generation_funcs.keys()))
@@ -355,6 +362,7 @@ def generate_controlled_metadata(
         # Basic info
         "name": name,
         "seed": seed,
+        "resolved_seed": resolved_seed,
         "dataset_type": "controlled",
         "timestamp": timestamp,
         "total_trials": num_base_sequences * num_variants * num_colors,
