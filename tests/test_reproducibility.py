@@ -83,9 +83,9 @@ def test_initial_rng_state_captured_pre_draw():
 
 
 # Pinned concrete first-sample for BouncingBallTask(seed=777) under the FIXED
-# code (P0-1-MIG behavioral-break audit record, dynamic-12). This is a
-# PLACEHOLDER that the implementer MUST replace — the test is intentionally RED
-# until the real post-fix array is pasted here (see Step note below).
+# code (P0-1-MIG behavioral-break audit record, dynamic-12). This literal IS the
+# fixed code's seed=777 first sample; the pre-fix code cannot reproduce it, so it
+# is the durable, machine-checkable record of the P0-1 seed-order behavioral break.
 PINNED_FIRST_SAMPLE_SEED_777 = np.array([  # pinned for P0-1 seed-order fix
     [210.88484 ,  40.168625, 255.      ,   0.      ,   0.      ],
     [211.12007 ,  40.39888 , 255.      ,   0.      ,   0.      ],
@@ -132,10 +132,10 @@ def test_fixed_seed_pins_concrete_first_sample():
     pre-fix code, so this test is the machine-checkable behavioral-change marker
     for P0-1-MIG.
 
-    This test is intentionally RED until the implementer pastes the real
-    post-fix array into PINNED_FIRST_SAMPLE_SEED_777 above (placeholder is an
-    empty array, which never matches the real first sample). It is NOT a
-    self-referential comparison of the just-computed value against itself.
+    PINNED_FIRST_SAMPLE_SEED_777 above is the real pinned literal (not a
+    placeholder), so this is a live green guard. It is NOT a self-referential
+    comparison of the just-computed value against itself: it asserts against a
+    module-level constant, so it fails if the fixed code's output ever drifts.
     """
     task = _make_task(seed=777)
     first = np.asarray(task.samples)[0]
