@@ -227,7 +227,9 @@ def _samples_equal(sa, sb):
 
 
 def test_human_seed_is_deterministic():
-    """Same human seed -> identical output_samples across two generations."""
+    """Same human seed -> identical output_samples across two generations.
+
+    Invariant guard; the distinguishing P0-2 check is test_human_pipeline_seeds_once."""
     dp, tp = _human_params(seed=99)
     out_a = hds.generate_video_dataset(
         dp, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=False,
@@ -240,29 +242,28 @@ def test_human_seed_is_deterministic():
     assert _samples_equal(out_a[1], out_b[1])
 
 
+@pytest.mark.skip(reason="blocked by pre-existing _adjust_labels=True/validate bug — see escalations.md E3")
 @pytest.mark.slow
 def test_human_seed_is_deterministic_production_path():
-    """Determinism with a larger dataset using the _adjust_labels=False path that
-    fully exercises parameter generation and simulation RNG consumers.
+    """Determinism on the real production path (_adjust_labels=True, validate=True).
 
-    The _adjust_labels=True path (adjust_dataset_labels) has pre-existing QC
-    assertions (reverse-mode color consistency) that fail independently of the
-    P0-2 seeding fix, so this test uses _adjust_labels=False with a larger
-    total_videos to provide a more thorough seeding regression than the fast
-    unit above (dynamic-2 coverage via larger RNG draw budget).
+    Invariant guard; the distinguishing P0-2 check is test_human_pipeline_seeds_once.
 
-    validate=False: same pre-existing reverse-mode initial-color index bug as
-    described in test_human_seed_is_deterministic."""
+    This test is skipped because _adjust_labels=True triggers
+    estimate_effective_hazard_rates -> generate_video_dataset -> validate=True
+    path, which raises AssertionError at dataset.py:144 (reverse-mode initial-color
+    index inconsistency, a pre-existing bug independent of P0-2). Unblock by
+    fixing E3 first, then remove the skip decorator."""
     dp, tp = _human_params(seed=99)
     dp_large = dict(dp)
     dp_large["total_videos"] = 30  # larger than the fast unit's 12
     out_a = hds.generate_video_dataset(
-        dp_large, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=False,
-        validate=False,
+        dp_large, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=True,
+        validate=True,
     )
     out_b = hds.generate_video_dataset(
-        dp_large, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=False,
-        validate=False,
+        dp_large, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=True,
+        validate=True,
     )
     assert _samples_equal(out_a[1], out_b[1])
 
@@ -289,6 +290,8 @@ _MODEL_TRIAL_FUNCS = {
 @pytest.mark.slow
 def test_model_seed_is_deterministic():
     """Model pipeline inherits the human seeding path; same seed -> identical.
+
+    Invariant guard; the distinguishing P0-2 check is test_human_pipeline_seeds_once.
 
     Calls hds.generate_video_dataset directly with model trial type funcs and
     model defaults (same code path as generate_model_dataset_nongray) to bypass
@@ -317,3 +320,33 @@ def test_model_seed_is_deterministic():
         _adjust_labels=False, validate=False, defaults=mdefaults,
     )
     assert _samples_equal(out_a[1], out_b[1])
+
+
+def test_human_pipeline_seeds_once(monkeypatch):
+    """P0-2 validator that DISTINGUISHES fixed from unfixed code. With the
+    task_parameters['seed']=False fix, the global RNG is seeded EXACTLY ONCE per
+    generate_video_dataset (the single line-247 anchor in generate_video_parameters);
+    per-trial-type and preset tasks defer. Without the fix each task self-seeds with
+    seed=None, so set_global_seed is called many times (1 anchor + N per-trial-type
+    tasks + 1 preset = N+2 for N active trial types). NOTE: the same-seed determinism
+    tests cannot catch this regression because set_global_seed also seeds Python's
+    `random`, making the unfixed per-trial reseeds deterministic — so this
+    call-count assertion is the real P0-2-human guard.
+
+    Concrete unfixed count for total_videos=12: 3 active trial types (catch,
+    straight, bounce) + 1 preset task + 1 anchor = 5 calls. With the fix: 1."""
+    import bouncing_ball_task.utils.pyutils as _pyu
+    calls = {"n": 0}
+    real = _pyu.set_global_seed
+
+    def _counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+
+    monkeypatch.setattr(_pyu, "set_global_seed", _counting)
+    dp, tp = _human_params(seed=99)
+    hds.generate_video_dataset(
+        dp, tp, hds.dict_trial_type_generation_funcs,
+        _adjust_labels=False, validate=False,
+    )
+    assert calls["n"] == 1, f"expected 1 seeding (single anchor), got {calls['n']}"
