@@ -196,7 +196,12 @@ def generate_controlled_dataset(
     final_task_parameters = copy.deepcopy(task_parameters)
     final_task_parameters['batch_size'] = final_targets.shape[0]
     final_task_parameters['sequence_mode'] = 'preset'
-    
+    # E2 hygiene: the preset wrappers carry no RNG draws of their own; pass the
+    # external-seeding escape hatch (seed=False) so they do NOT reseed the global
+    # RNG mid-pipeline. Generation is seeded exactly once, at the base-task anchor
+    # above, so the shuffle's np.random.permutation draws from that single anchor.
+    final_task_parameters['seed'] = False
+
     task = BouncingBallTask(
         **final_task_parameters,
         samples=final_samples,

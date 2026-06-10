@@ -449,3 +449,38 @@ def test_human_metadata_has_provenance():
     assert "provenance" in meta
     assert "git_sha" in meta["provenance"]
     assert "numpy" in meta["provenance"]["library_versions"]
+
+
+def test_controlled_pipeline_seeds_once(monkeypatch):
+    """E2 hygiene: the controlled pipeline must seed the global RNG exactly ONCE
+    — at the base-task anchor — even with shuffle=True (the default). The two
+    preset BouncingBallTask wrappers must pass seed=False so they do NOT reseed
+    mid-pipeline; the shuffle's np.random.permutation then draws from the single
+    seed anchor intentionally rather than relying on set_global_seed(None)
+    coincidentally re-deriving a deterministic seed from the already-seeded
+    Python `random`.
+
+    STRUCTURAL guard (call-count spy), NOT an output-determinism test: output
+    determinism holds with OR without the fix (set_global_seed seeds Python's
+    random too), so only the seeds-once property distinguishes the fix. Cf.
+    test_human_pipeline_seeds_once (the P0-2 analog).
+    """
+    from bouncing_ball_task.utils import pyutils
+
+    calls = []
+    real_set_global_seed = pyutils.set_global_seed
+
+    def spy(value=None):
+        calls.append(value)
+        return real_set_global_seed(value)
+
+    monkeypatch.setattr(pyutils, "set_global_seed", spy)
+
+    dp, tp = _controlled_params(seed=4242)
+    cds.generate_controlled_dataset(dp, tp, shuffle=True)
+
+    assert calls == [4242], (
+        f"expected exactly one global seeding (the base-task anchor 4242); got "
+        f"{calls}. A preset BouncingBallTask construction is reseeding the global "
+        f"RNG mid-pipeline — pass seed=False to the preset wrappers."
+    )
