@@ -75,7 +75,14 @@ def generate_video_dataset(
     trial_types = tuple(key for key, _ in dict_params.items())    
     
     task_parameters = copy.deepcopy(task_parameters)
-    
+
+    # P0-2: the global RNG was already seeded once with the resolved seed in
+    # generate_video_parameters (set_global_seed). Every task built here must
+    # DEFER to that seeding, not self-draw a fresh seed and clobber it. seed=False
+    # is the external-seeding escape hatch; it propagates to all per-trial-type
+    # tasks (and the final preset task) built from this dict.
+    task_parameters["seed"] = False
+
     # task_parameters["target_future_timestep"] = defaults.target_future_timestep
     task_parameters["sequence_length"] = dict_metadata["video_length_max_f"]
     # task_parameters["sample_velocity_discretely"] = defaults.sample_velocity_discretely

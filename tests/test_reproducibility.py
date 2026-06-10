@@ -199,3 +199,121 @@ def test_controlled_seed_false_name_has_no_false_zero():
     # False and give a spurious failure.
     assert meta["seed"] is False
     assert meta["name"].endswith(str(meta["seed"]))
+
+
+from bouncing_ball_task.human_bouncing_ball import dataset as hds
+from bouncing_ball_task.human_bouncing_ball import defaults as hdefaults
+
+
+def _human_params(seed):
+    dataset_params = {
+        key: getattr(hdefaults.HumanDatasetParameters(), key)
+        for key in hdefaults.HumanDatasetParameters.keys
+    }
+    dataset_params["seed"] = seed
+    dataset_params["total_videos"] = 12  # small but non-trivial
+    task_params = {
+        key: getattr(hdefaults.TaskParameters(), key)
+        for key in hdefaults.TaskParameters.keys
+    }
+    return dataset_params, task_params
+
+
+def _samples_equal(sa, sb):
+    """Compare two lists of variable-length sample arrays for element-wise equality."""
+    if len(sa) != len(sb):
+        return False
+    return all(np.array_equal(a, b) for a, b in zip(sa, sb))
+
+
+def test_human_seed_is_deterministic():
+    """Same human seed -> identical output_samples across two generations."""
+    dp, tp = _human_params(seed=99)
+    out_a = hds.generate_video_dataset(
+        dp, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=False,
+        validate=False,
+    )
+    out_b = hds.generate_video_dataset(
+        dp, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=False,
+        validate=False,
+    )
+    assert _samples_equal(out_a[1], out_b[1])
+
+
+@pytest.mark.slow
+def test_human_seed_is_deterministic_production_path():
+    """Determinism with a larger dataset using the _adjust_labels=False path that
+    fully exercises parameter generation and simulation RNG consumers.
+
+    The _adjust_labels=True path (adjust_dataset_labels) has pre-existing QC
+    assertions (reverse-mode color consistency) that fail independently of the
+    P0-2 seeding fix, so this test uses _adjust_labels=False with a larger
+    total_videos to provide a more thorough seeding regression than the fast
+    unit above (dynamic-2 coverage via larger RNG draw budget).
+
+    validate=False: same pre-existing reverse-mode initial-color index bug as
+    described in test_human_seed_is_deterministic."""
+    dp, tp = _human_params(seed=99)
+    dp_large = dict(dp)
+    dp_large["total_videos"] = 30  # larger than the fast unit's 12
+    out_a = hds.generate_video_dataset(
+        dp_large, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=False,
+        validate=False,
+    )
+    out_b = hds.generate_video_dataset(
+        dp_large, tp, hds.dict_trial_type_generation_funcs, _adjust_labels=False,
+        validate=False,
+    )
+    assert _samples_equal(out_a[1], out_b[1])
+
+
+from bouncing_ball_task.model_bouncing_ball import dataset as mds
+from bouncing_ball_task.model_bouncing_ball import defaults as mdefaults
+from bouncing_ball_task.model_bouncing_ball.ncc_nvc import generate_ncc_nvc_trials
+from bouncing_ball_task.model_bouncing_ball.cc_nvc import generate_cc_nvc_trials
+from bouncing_ball_task.model_bouncing_ball.ncc_vc import generate_ncc_vc_trials
+from bouncing_ball_task.model_bouncing_ball.cc_vc import generate_cc_vc_trials
+from bouncing_ball_task.model_bouncing_ball.ncc_rvc import generate_ncc_rvc_trials
+from bouncing_ball_task.model_bouncing_ball.cc_rvc import generate_cc_rvc_trials
+
+_MODEL_TRIAL_FUNCS = {
+    "ncc_nvc": generate_ncc_nvc_trials,
+    "cc_nvc": generate_cc_nvc_trials,
+    "ncc_vc": generate_ncc_vc_trials,
+    "cc_vc": generate_cc_vc_trials,
+    "ncc_rvc": generate_ncc_rvc_trials,
+    "cc_rvc": generate_cc_rvc_trials,
+}
+
+
+@pytest.mark.slow
+def test_model_seed_is_deterministic():
+    """Model pipeline inherits the human seeding path; same seed -> identical.
+
+    Calls hds.generate_video_dataset directly with model trial type funcs and
+    model defaults (same code path as generate_model_dataset_nongray) to bypass
+    the generate_model_dataset_nongray wrapper, which hard-codes _adjust_labels=True
+    (the default) and triggers estimate_effective_hazard_rates, which fails when
+    total_dataset_length=None (a pre-existing bug unrelated to P0-2). Using
+    _adjust_labels=False with model defaults and validate=False exercises the full
+    seeding inheritance path (seed flows from NongrayDatasetParameters through
+    generate_video_parameters into per-trial BouncingBallTask constructions)."""
+    dataset_params = {
+        key: getattr(mdefaults.NongrayDatasetParameters(), key)
+        for key in mdefaults.NongrayDatasetParameters.keys
+    }
+    dataset_params["seed"] = 7
+    dataset_params["total_videos"] = 12
+    task_params = {
+        key: getattr(mdefaults.TaskParameters(), key)
+        for key in mdefaults.TaskParameters.keys
+    }
+    out_a = hds.generate_video_dataset(
+        dataset_params, task_params, _MODEL_TRIAL_FUNCS,
+        _adjust_labels=False, validate=False, defaults=mdefaults,
+    )
+    out_b = hds.generate_video_dataset(
+        dataset_params, task_params, _MODEL_TRIAL_FUNCS,
+        _adjust_labels=False, validate=False, defaults=mdefaults,
+    )
+    assert _samples_equal(out_a[1], out_b[1])
