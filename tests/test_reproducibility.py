@@ -140,3 +140,36 @@ def test_fixed_seed_pins_concrete_first_sample():
     task = _make_task(seed=777)
     first = np.asarray(task.samples)[0]
     np.testing.assert_array_equal(first, PINNED_FIRST_SAMPLE_SEED_777)
+
+
+from bouncing_ball_task.controlled_bouncing_ball import dataset as cds
+from bouncing_ball_task.controlled_bouncing_ball import defaults as cdefaults
+
+
+def _controlled_params(seed):
+    dataset_params = {
+        key: getattr(cdefaults.ControlledDatasetParameters(), key)
+        for key in cdefaults.ControlledDatasetParameters.keys
+    }
+    dataset_params["num_base_sequences"] = 3
+    dataset_params["seed"] = seed
+    task_params = {
+        key: getattr(cdefaults.ControlledTaskParameters(), key)
+        for key in cdefaults.ControlledTaskParameters.keys
+    }
+    return dataset_params, task_params
+
+
+def test_controlled_seed_is_deterministic():
+    """Same controlled seed -> identical samples across two full generations."""
+    dp, tp = _controlled_params(seed=4242)
+    _, samples_a, _, _, _, _ = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    _, samples_b, _, _, _, _ = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    assert np.array_equal(samples_a, samples_b)
+
+
+def test_controlled_resolved_seed_recorded():
+    """The metadata records the resolved seed actually used (P0-2 + P0-3)."""
+    dp, tp = _controlled_params(seed=4242)
+    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    assert meta["resolved_seed"] == 4242

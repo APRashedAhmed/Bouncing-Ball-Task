@@ -73,13 +73,17 @@ def generate_controlled_dataset(
     base_task_parameters['return_change'] = True
     base_task_parameters['return_change_mode'] = 'source'  # Get full change arrays
     
-    # Set random seed if provided
+    # Thread the dataset seed INTO the base task so it seeds deterministically
+    # (P0-2). Passing seed=None lets BouncingBallTask draw a fresh seed and report
+    # it via resolved_seed; passing an int makes generation deterministic.
     seed = controlled_dataset_parameters.get('seed')
-    if seed is not None:
-        np.random.seed(seed)
-    
+    base_task_parameters['seed'] = seed
+
     # Create task and generate sequences
     base_task = BouncingBallTask(**base_task_parameters)
+
+    # Capture the seed the task actually resolved, for reproducible provenance.
+    resolved_seed = base_task.resolved_seed
     
     # Get the base targets which include positions and change vectors
     base_targets = base_task.targets  # Shape: (N, T, 9)
