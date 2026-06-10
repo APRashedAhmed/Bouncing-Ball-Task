@@ -229,6 +229,24 @@ class BouncingBallTask:
                     f"Preset samples and targets provided, but sequence mode is not set to 'preset'; currently set to {self.sequence_mode}"
                 )
 
+        # Apply the seed BEFORE any RNG draw (P0-1). Contract:
+        #   seed=None  -> draw a fresh seed, apply it, record it
+        #   seed=int   -> apply exactly this seed, record it
+        #   seed=False -> external-seeding escape hatch: do not touch the RNG;
+        #                 resolved_seed stays None (task resolved no seed)
+        self.seed = seed
+        if self.seed is not False:  # Skip seeding if it is done elsewhere
+            self.resolved_seed = pyutils.set_global_seed(self.seed)
+        else:
+            self.resolved_seed = None
+
+        # Capture the PRE-draw RNG state (E1 option (a); escalations.md E1) so a
+        # dataset's provenance can replay the trajectory bit-for-bit. Taken AFTER
+        # set_global_seed and BEFORE the first initial-condition draw, for all
+        # three seed states (for seed=False this is the external state the caller
+        # already seeded).
+        self.initial_rng_state = np.random.get_state()
+
         # Use the provided batch_size to initialize attributes
         if self.sequence_mode != "preset":
             self.resample_change_probabilities(batch_size)
@@ -288,10 +306,6 @@ class BouncingBallTask:
                 self.mask_end,
                 self.mask_color,
             )
-
-        self.seed = seed
-        if self.seed is not False:  # Skip seeding if its done elsewhere
-            pyutils.set_global_seed(self.seed) # Set the seed before all operations
 
         self.return_change = return_change
 
