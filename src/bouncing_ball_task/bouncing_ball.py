@@ -1067,22 +1067,27 @@ class BouncingBallTask:
             elif valid_colors.lower() == "constant":
                 valid_colors = list(CONSTANT_COLOR)
             else:
-                raise ValueError(f"Invalid str color input, '{valid_color}'")
+                raise ValueError(f"Invalid str color input, '{valid_colors}'")
 
         # Go off passed valid colors
         if valid_colors is not None:
-            if initial_color is not None and len(initial_color) == 3:
-                if np.array(initial_color).ndim > 1:
-                    for color in initial_color:
-                        if (
-                            not (initial_color[0] == valid_colors)
-                            .all(axis=1)
-                            .any()
-                        ):
-                            valid_colors = [color] + valid_colors
+            # Normalize to an ndarray BEFORE any element-wise compare so the
+            # membership test broadcasts instead of falling into Python
+            # list.__eq__ (which returns a scalar bool -> the `.all(axis=1)` crash).
+            valid_colors = np.asarray(valid_colors)
 
-                elif initial_color not in valid_colors:
-                    valid_colors = [initial_color] + valid_colors
+            if initial_color is not None:
+                ic = np.asarray(initial_color)
+                if ic.ndim > 1:
+                    # A batch of per-trial triples: prepend each triple that is
+                    # not already present in valid_colors.
+                    for color in ic:
+                        if not (color == valid_colors).all(axis=1).any():
+                            valid_colors = np.vstack([color, valid_colors])
+                else:
+                    # A single triple.
+                    if not (ic == valid_colors).all(axis=1).any():
+                        valid_colors = np.vstack([ic, valid_colors])
 
             num_colors = len(valid_colors)
 
@@ -1110,7 +1115,16 @@ class BouncingBallTask:
             )
             initial_color = valid_colors[self._index]
         else:
-            initial_color = np.array(initial_color)
+            # Normalize to 2-D so the index block below (np.all(..., axis=1))
+            # is safe for a single triple too. Identity for the production path,
+            # which always passes a 2-D batch -> no working output changes.
+            # SHAPE NOTE: for a single-triple (ndim==1) caller this changes the
+            # RETURNED/stored initial_color from (3,) to (1, 3). No current
+            # production caller passes ndim==1 (every production path passes a
+            # 2-D batch, where atleast_2d is a no-op), so this affects only the
+            # latent single-triple shape; the (1, 3) form is asserted as
+            # intentional in test_set_color_parameters_noop_for_in_set_colors.
+            initial_color = np.atleast_2d(np.asarray(initial_color))
             self._index = np.zeros((initial_color.shape[0]), dtype=int)
             for i, valid_color in enumerate(valid_colors):
                 self._index[np.all(initial_color == valid_color, axis=1)] = i

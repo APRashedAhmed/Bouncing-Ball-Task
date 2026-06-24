@@ -484,3 +484,128 @@ def test_controlled_pipeline_seeds_once(monkeypatch):
         f"{calls}. A preset BouncingBallTask construction is reseeding the global "
         f"RNG mid-pipeline — pass seed=False to the preset wrappers."
     )
+
+
+from bouncing_ball_task.constants import DEFAULT_COLORS
+
+
+def test_set_color_parameters_batch_of_three_no_crash():
+    """E4 (C1): a batch of EXACTLY 3 in-set triples (len 3) must not raise
+    AttributeError. Pre-fix this hit `len(initial_color) == 3` -> the ndim>1 arm
+    -> `(list == list).all(axis=1)` -> 'bool' has no attribute 'all'.
+
+    The batch MUST be passed the way the human production path supplies it — a
+    Python list of per-trial RGB triples — so that `initial_color[0] ==
+    valid_colors` is Python `list.__eq__` (returns a scalar bool -> the crash).
+    An ndarray batch would broadcast element-wise and silently NOT reproduce the
+    bug (verified: ndarray rows never crash pre-fix). The end-to-end production
+    reproduction is the total_videos>=60 run in
+    test_human_seed_is_deterministic_production_path."""
+    task = _make_task(seed=4242)
+    vc = np.asarray(DEFAULT_COLORS)                 # (3, 3): R, G, B reference
+    # A Python list of exactly 3 in-set RGB triples (production-faithful shape).
+    batch3 = [list(c) for c in DEFAULT_COLORS]      # [[255,0,0],[0,255,0],[0,0,255]]
+    # Must not raise:
+    _, out_vc, out_n = task.set_color_parameters(batch3, list(DEFAULT_COLORS), len(vc))
+    assert np.array_equal(out_vc, vc)
+    assert out_n == len(vc)
+
+
+def test_set_color_parameters_noop_for_in_set_colors():
+    """E4 G2 no-op invariant (C2): for color batches already in valid_colors the
+    repaired arm fires NO prepend, so valid_colors/num_colors are returned
+    UNCHANGED. For every working path pre-fix produced the same unchanged set
+    (it skipped the arm for non-size-3 batches and crashed for size-3), so
+    'unchanged' IS the byte-exact pre-fix result. Covers single triple (ndim=1)
+    and batches (ndim=2, including size 3). For the ndim=1 case it also asserts
+    the returned initial_color is normalised to 2-D (1, 3) — an intentional,
+    documented shape change that no current production caller exercises."""
+    task = _make_task(seed=4242)
+    vc = np.asarray(DEFAULT_COLORS)
+    n = len(vc)
+
+    # ndim=2, batch of exactly 3 (the E4 crash shape) — Python list, as the
+    # production path supplies it (an ndarray batch would not reproduce the bug).
+    batch3_list = [list(c) for c in DEFAULT_COLORS]
+    _, out_vc, out_n = task.set_color_parameters(batch3_list, list(DEFAULT_COLORS), n)
+    assert np.array_equal(out_vc, vc) and out_n == n
+
+    # ndim=2, a non-3 batch size (general no-op)
+    _, out_vc5, out_n5 = task.set_color_parameters(vc[[0, 1, 2, 0, 1]], list(DEFAULT_COLORS), n)
+    assert np.array_equal(out_vc5, vc) and out_n5 == n
+
+    # ndim=1, a single in-set triple. The repaired arm normalises the returned
+    # initial_color to 2-D (np.atleast_2d at the index block), so a single (3,)
+    # triple comes back as a (1, 3) row. valid_colors/num_colors stay the
+    # unchanged in-set set (no prepend fires). The shape change is asserted here
+    # as intentional and documented; no current production caller passes ndim==1
+    # (all production paths pass a 2-D batch -> identity, no shape change).
+    out_ic1, out_vc1, out_n1 = task.set_color_parameters(vc[0], list(DEFAULT_COLORS), n)
+    assert np.array_equal(out_vc1, vc) and out_n1 == n
+    assert np.asarray(out_ic1).ndim == 2 and np.asarray(out_ic1).shape == (1, 3)
+
+
+def _assert_default_color_set(task):
+    """C2 byte-exact no-op proof on a PRODUCTION-PATH run: the returned task's
+    color set must be the unchanged in-set DEFAULT_COLORS — proving NO prepend
+    fired on this exact path (a fired prepend would make valid_colors (4, 3) /
+    num_colors 4). generate_video_dataset and generate_controlled_dataset both
+    return the BouncingBallTask as element [0]; it stores .valid_colors and
+    .num_colors from set_color_parameters (bouncing_ball.py:289-292)."""
+    vc = np.asarray(DEFAULT_COLORS)
+    assert np.asarray(task.valid_colors).shape == (3, 3), \
+        f"valid_colors shape changed: {np.asarray(task.valid_colors).shape} (a prepend fired)"
+    assert np.array_equal(np.asarray(task.valid_colors), vc), \
+        "valid_colors differ from DEFAULT_COLORS (a prepend fired on the production path)"
+    assert task.num_colors == 3, f"num_colors changed to {task.num_colors} (a prepend fired)"
+
+
+def test_color_paths_complete_and_deterministic_post_e4():
+    """E4 (C2 path coverage): the three working paths each complete without the
+    E4 crash, are deterministic at the named configs, AND each returns the
+    byte-exact unchanged in-set color set (valid_colors == DEFAULT_COLORS,
+    num_colors == 3) — directly proving no prepend fired on those exact
+    production paths (the C2 no-op-vs-pre-fix invariant). The controlled path is
+    a DISTINCT asserted signal here (not only via test_no_change.py)."""
+    # (a) human total_videos=30 seed=99
+    dp, tp = _human_params(seed=99)
+    dp30 = dict(dp); dp30["total_videos"] = 30
+
+    # C2 premise guard (converts the design-spec batch-size table prose into a
+    # machine-checkable assertion): at n=30 seed=99 NO per-trial-type batch is
+    # exactly 3, so the size-3 pre-fix arm was never entered and 'unchanged' is
+    # provably the byte-exact pre-fix result. generate_video_parameters returns
+    # dict_params keyed by trial type; len(params) is that trial type's batch
+    # size (== task_parameters_type["batch_size"], dataset.py:130).
+    dict_params30, _ = hds.generate_video_parameters(
+        **dp30, dict_trial_type_generation_funcs=hds.dict_trial_type_generation_funcs)
+    batch_sizes30 = [len(params) for params in dict_params30.values()]
+    assert all(bs != 3 for bs in batch_sizes30), \
+        f"a per-trial-type batch of 3 at n=30 seed=99 would enter the pre-fix arm: {batch_sizes30}"
+
+    h_a = hds.generate_video_dataset(dp30, tp, hds.dict_trial_type_generation_funcs,
+                                     _adjust_labels=False, validate=False)
+    h_b = hds.generate_video_dataset(dp30, tp, hds.dict_trial_type_generation_funcs,
+                                     _adjust_labels=False, validate=False)
+    assert _samples_equal(h_a[1], h_b[1])
+    _assert_default_color_set(h_a[0])   # no prepend fired on the human n=30 path
+
+    # (b) model total_videos=12 seed=7 (same seeding path as the wrapper)
+    mp = {k: getattr(mdefaults.NongrayDatasetParameters(), k)
+          for k in mdefaults.NongrayDatasetParameters.keys}
+    mp["seed"] = 7; mp["total_videos"] = 12
+    mtp = {k: getattr(mdefaults.TaskParameters(), k)
+           for k in mdefaults.TaskParameters.keys}
+    m_a = hds.generate_video_dataset(mp, mtp, _MODEL_TRIAL_FUNCS,
+                                     _adjust_labels=False, validate=False, defaults=mdefaults)
+    m_b = hds.generate_video_dataset(mp, mtp, _MODEL_TRIAL_FUNCS,
+                                     _adjust_labels=False, validate=False, defaults=mdefaults)
+    assert _samples_equal(m_a[1], m_b[1])
+    _assert_default_color_set(m_a[0])   # no prepend fired on the model path
+
+    # (c) controlled num_base_sequences=3 seed=4242
+    cdp, ctp = _controlled_params(seed=4242)
+    c_a = cds.generate_controlled_dataset(cdp, ctp, shuffle=False)
+    c_b = cds.generate_controlled_dataset(cdp, ctp, shuffle=False)
+    assert np.array_equal(c_a[1], c_b[1])
+    _assert_default_color_set(c_a[0])   # no prepend fired on the controlled path
