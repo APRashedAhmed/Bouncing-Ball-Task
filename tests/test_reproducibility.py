@@ -6,6 +6,7 @@ green floor. They must NOT depend on the chronically-red statistical suite.
 import copy
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
@@ -607,3 +608,49 @@ def test_color_paths_complete_and_deterministic_post_e4():
     c_b = cds.generate_controlled_dataset(cdp, ctp, shuffle=False)
     assert np.array_equal(c_a[1], c_b[1])
     _assert_default_color_set(c_a[0])   # no prepend fired on the controlled path
+
+
+def _hz_df():
+    """Minimal df_data the estimator's groupby('Hazard Rate') needs."""
+    return pd.DataFrame({
+        "Hazard Rate": [0.1, 0.1, 0.5, 0.5],
+        "PCCNVC_effective": [0.20, 0.30, 0.60, 0.40],
+    })
+
+
+def test_estimate_n_none_preserves_human_sizing(monkeypatch):
+    """C7: estimate_n=None keeps the human sizing (total_dataset_length *= estimate_mult)."""
+    seen = {}
+
+    def spy(dataset_parameters, *args, **kwargs):
+        seen["tdl"] = dataset_parameters["total_dataset_length"]
+        return ("t", [], [], [], _hz_df(), {})
+
+    monkeypatch.setattr(hds, "generate_video_dataset", spy)
+    dp, tp = _human_params(seed=99)
+    base = dp["total_dataset_length"]
+    assert base is not None  # human params size by total_dataset_length
+    hds.estimate_effective_hazard_rates(
+        dp, tp, hds.dict_trial_type_generation_funcs, estimate_mult=3)
+    assert seen["tdl"] == base * 3
+
+
+def test_estimate_n_sizes_by_total_videos(monkeypatch):
+    """C7/3a: estimate_n provided sizes by total_videos and leaves
+    total_dataset_length untouched (so None *= mult never runs)."""
+    seen = {}
+
+    def spy(dataset_parameters, *args, **kwargs):
+        seen["tdl"] = dataset_parameters["total_dataset_length"]
+        seen["tv"] = dataset_parameters["total_videos"]
+        return ("t", [], [], [], _hz_df(), {})
+
+    monkeypatch.setattr(hds, "generate_video_dataset", spy)
+    dp = {k: getattr(mdefaults.NongrayDatasetParameters(), k)
+          for k in mdefaults.NongrayDatasetParameters.keys}   # total_dataset_length=None
+    tp = {k: getattr(mdefaults.TaskParameters(), k)
+          for k in mdefaults.TaskParameters.keys}
+    hds.estimate_effective_hazard_rates(
+        dp, tp, _MODEL_TRIAL_FUNCS, defaults=mdefaults, estimate_n=500)
+    assert seen["tdl"] is None     # untouched
+    assert seen["tv"] == 500

@@ -696,19 +696,28 @@ def compute_effective_type_stats(
 
 def estimate_effective_hazard_rates(
         dataset_parameters,
-        task_parameters, 
+        task_parameters,
         dict_trial_type_generation_funcs,
         defaults=defaults,
         estimate_mult=100,
+        estimate_n=None,
 ):
     task_parameters = copy.deepcopy(task_parameters)
     dataset_parameters = copy.deepcopy(dataset_parameters)
-    
-    dataset_parameters["total_dataset_length"] *= estimate_mult
-    
+
+    if estimate_n is None:
+        # Human path: size the throwaway estimate by total_dataset_length.
+        # Byte-identical to the original behavior.
+        dataset_parameters["total_dataset_length"] *= estimate_mult
+    else:
+        # Decoupled path (e.g. model): size the throwaway estimate directly by a
+        # fixed video count, never touching total_dataset_length (which is None
+        # for the model and would raise on `None *= estimate_mult`).
+        dataset_parameters["total_videos"] = estimate_n
+
     task, output_samples, output_model_samples, output_targets, df_data, dict_metadata = generate_video_dataset(
         dataset_parameters,
-        task_parameters, 
+        task_parameters,
         dict_trial_type_generation_funcs,
         shuffle=True,
         validate=True,
