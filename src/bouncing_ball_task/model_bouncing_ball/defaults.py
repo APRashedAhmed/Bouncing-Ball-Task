@@ -13,6 +13,17 @@ from bouncing_ball_task.human_bouncing_ball.defaults import (
 
 name_dataset: str = "mbb_dataset"
 
+# Effective-hazard-rate estimator sample size (E5). Decoupled from the final
+# dataset size (total_videos=18000) and pinned by calibration to absolute
+# tolerance eps=0.005 on the per-`Hazard Rate` mean PCCNVC_effective. Derivation:
+# pilot within-group sigma_g of PCCNVC_effective -> analytic per-group bound
+# n_req=(1.96*max_g sigma_g/0.005)**2 -> replicate sweep confirming worst-case
+# smallest-group count clears n_req and across-replicate std of each per-group
+# mean < 0.005. (Calibration evidence in the project's durable PerAnkh
+# plans/ calibration learnings artifact, kept out of the repo per the repo's
+# process-artifact policy.)
+ESTIMATE_N: int = 1000
+
 
 @dataclass
 class ModelDatasetParameters(HumanDatasetParameters):
