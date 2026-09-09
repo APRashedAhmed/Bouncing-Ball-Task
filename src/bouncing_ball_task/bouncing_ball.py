@@ -1575,11 +1575,31 @@ class BouncingBallTask:
                 ~transitioning_mask,
             )
 
+            # Stamp forced color changes into the change ledger so that the
+            # yielded record matches the color that is actually produced.
+            # Forced means forced, so they are never suppressed by the
+            # transitioning mask. They are routed to the bounce-contingent
+            # channel when a velocity change occurred at this timestep and to
+            # the random channel otherwise, mirroring how sampled changes are
+            # routed. Frames that already carry a sampled change are left
+            # untouched so the ledger stays binary (ch7 + ch8 <= 1).
+            forced_color_changes_t = np.logical_and(
+                self.forced_color_changes_array[t],
+                np.logical_not(np.logical_or(*color_change_array[t].T)),
+            )
+            color_change_array[t, :, 0] |= np.logical_and(
+                forced_color_changes_t,
+                velocity_change_nochange[:, 0],
+            )
+            color_change_array[t, :, 1] |= np.logical_and(
+                forced_color_changes_t,
+                velocity_change_nochange[:, 1],
+            )
+
             # Select indices for where color will change
             self.color_change_indices = color_changes = np.logical_or(
-                np.logical_or(*color_change_array[t].T),
+                *color_change_array[t].T
                 # color_change_array[t].any(axis=-1),
-                self.forced_color_changes_array[t],
             )
 
             # Set chance for random (no vel change) color changes to be 0 for
