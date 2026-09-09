@@ -394,7 +394,9 @@ def test_capture_provenance_marks_dirty_tree(tmp_path):
     sp.check_call(["git", "config", "user.name", "t"], cwd=repo)
     (repo / "f.txt").write_text("one")
     sp.check_call(["git", "add", "-A"], cwd=repo)
-    sp.check_call(["git", "commit", "-qm", "init"], cwd=repo)
+    # Conventional-commit subject: the machine may have a global commit-msg hook
+    # (core.hooksPath) that rejects non-conventional subjects like "init".
+    sp.check_call(["git", "commit", "-qm", "chore: init"], cwd=repo)
     (repo / "f.txt").write_text("two")  # uncommitted edit -> dirty tree
 
     prov = pyutils.capture_provenance(repo_dir=repo)
@@ -703,7 +705,7 @@ _MODEL_DET_SNIPPET = textwrap.dedent('''
     h = hashlib.sha256()
     for s in out[1]:
         h.update(np.asarray(s).tobytes())
-    print(h.hexdigest())
+    print("DIGEST=" + h.hexdigest())
 ''')
 
 
@@ -714,8 +716,13 @@ def test_model_nongray_deterministic_separate_processes():
     set_global_seed(None) coincidental-determinism trap (pyutils.py:36-37) that
     a same-process output-equality check would false-pass."""
     def run():
-        return subprocess.check_output(
-            [sys.executable, "-c", _MODEL_DET_SNIPPET], text=True).strip()
+        # The pipeline prints a summary to stdout; pick out the sentinel line.
+        out = subprocess.check_output(
+            [sys.executable, "-c", _MODEL_DET_SNIPPET], text=True)
+        digests = [l[len("DIGEST="):] for l in out.splitlines()
+                   if l.startswith("DIGEST=")]
+        assert len(digests) == 1, out
+        return digests[0]
 
     first = run()
     second = run()

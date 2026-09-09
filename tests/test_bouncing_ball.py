@@ -5,6 +5,23 @@ import pytest
 
 from bouncing_ball_task.bouncing_ball import BouncingBallTask
 
+
+def make_task(**kwargs) -> BouncingBallTask:
+    """Construct a `BouncingBallTask` with the grayzone change-gate disabled.
+
+    None of the tests in this module target the grayzone transition gate, but
+    the default (`transitioning_change_mode=None`) suppresses random velocity
+    and colour changes while the ball overlaps the grayzone boundary, which
+    biases every change-rate statistic these tests assert on. `"all"` sets
+    `transition_value = np.inf`, so `transitioning_mask` is uniformly False and
+    the gate is a no-op; nothing else reads `transition_value`.
+
+    Callers that explicitly pass `transitioning_change_mode` keep their value.
+    """
+    kwargs.setdefault("transitioning_change_mode", "all")
+    return BouncingBallTask(**kwargs)
+
+
 # @pytest.fixture(autouse=True)
 # def set_seed():
 #     np.random.seed(0)  # Set a fixed seed for NumPy's random number generator
@@ -12,7 +29,7 @@ from bouncing_ball_task.bouncing_ball import BouncingBallTask
 
 @pytest.fixture
 def default_task():
-    return BouncingBallTask(sequence_mode="reset")
+    return make_task(sequence_mode="reset")
 
 
 # Test instantiation and basic properties
@@ -161,7 +178,7 @@ def test_sample_velocity(
     velocity_y_lower_multiplier,
     velocity_y_upper_multiplier,
 ):
-    task = BouncingBallTask(
+    task = make_task(
         batch_size=batch_size,
         sample_velocity_discretely=sample_velocity_discretely,
         num_x_velocities=num_x_velocities,
@@ -236,11 +253,11 @@ def test_valid_sequence_modes(sequence_mode):
     # Test an invalid sequence_mode (should not be case sensitive)
     if sequence_mode.lower() not in valid_sequence_modes:
         with pytest.raises(ValueError):
-            task = BouncingBallTask(sequence_mode=sequence_mode)
+            task = make_task(sequence_mode=sequence_mode)
 
     # Test each of the valid modes
     else:
-        task = BouncingBallTask(sequence_mode=sequence_mode)
+        task = make_task(sequence_mode=sequence_mode)
         # Test the iteration works properly
         _ = zip(*[x for x in task])
 
@@ -251,7 +268,7 @@ def test_valid_sequence_modes(sequence_mode):
 )
 def test_correct_sequences_for_each_sequence_modes(sequence_mode):
     sequence_length = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode=sequence_mode,
         sequence_length=sequence_length,
     )
@@ -278,7 +295,7 @@ def test_correct_samples_and_targets_for_each_sequence_modes(sequence_mode):
     batch_size = 2
     sequence_length = 5
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         batch_size=batch_size,
         sequence_mode=sequence_mode,
         sequence_length=sequence_length,
@@ -321,7 +338,7 @@ def test_sequence_modes_correctly_reset(sequence_mode):
     batch_size = 2
     sequence_length = 10
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         batch_size=batch_size,
         sequence_mode=sequence_mode,
         sequence_length=sequence_length,
@@ -370,7 +387,7 @@ def test_return_change_correctly_returns_changes(return_change):
     batch_size = 2
     sequence_length = 10
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -401,7 +418,7 @@ def test_return_change_modes_have_correct_shapes(return_change_mode):
         not in BouncingBallTask.valid_return_change_modes
     ):
         with pytest.raises(ValueError):
-            task = BouncingBallTask(
+            task = make_task(
                 sequence_mode="static",
                 batch_size=batch_size,
                 sequence_length=sequence_length,
@@ -410,7 +427,7 @@ def test_return_change_modes_have_correct_shapes(return_change_mode):
             )
 
     else:
-        task = BouncingBallTask(
+        task = make_task(
             sequence_mode="static",
             batch_size=batch_size,
             sequence_length=sequence_length,
@@ -441,7 +458,7 @@ def test_initial_changes(initial_timestep_is_changepoint, return_change_mode):
     batch_size = 2
     sequence_length = 10
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -464,7 +481,7 @@ def test_grayzone_and_color_mask_mode(color_mask_mode):
     batch_size = 100
     sequence_length = 500
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -536,7 +553,7 @@ def test_pvc_causes_correct_random_velocity_changes(
     batch_size = 4096
     sequence_length = 1000
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -546,6 +563,10 @@ def test_pvc_causes_correct_random_velocity_changes(
         return_change=True,
         return_change_mode="source",
         initial_timestep_is_changepoint=False,
+        # This test measures the raw random-velocity-change rate, not the
+        # post-change refractory window, so disable the deadzones.
+        min_t_velocity_change_after_random=0,
+        min_t_velocity_change_after_bounce=0,
     )
     # Subselect all instances where there was a random velocity change
     timesteps_velocity_changes_random = task.targets[task.targets[..., -3] == 1]
@@ -567,7 +588,7 @@ def test_pccovc_causes_correct_color_changes(
     batch_size = 4096
     sequence_length = 1000
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -598,7 +619,7 @@ def test_bounce_and_random_velocity_changes_occur_at_correct_locations(pvc):
     batch_size = 1024
     sequence_length = 500
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -608,7 +629,8 @@ def test_bounce_and_random_velocity_changes_occur_at_correct_locations(pvc):
         return_change_mode="source",
         initial_timestep_is_changepoint=False,
         color_change_bounce_delay=0,
-        min_t_color_change=0,
+        min_t_color_change_after_random=0,
+        min_t_color_change_after_bounce=0,
     )
 
     # Subselect for timesteps where there is a velocity change
@@ -665,7 +687,7 @@ def test_bounce_and_random_color_changes_occur_correctly(
     batch_size = 1024
     sequence_length = 500
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -673,7 +695,8 @@ def test_bounce_and_random_color_changes_occur_correctly(
         return_change_mode="source",
         initial_timestep_is_changepoint=False,
         color_change_bounce_delay=color_change_bounce_delay,
-        min_t_color_change=0,
+        min_t_color_change_after_random=0,
+        min_t_color_change_after_bounce=0,
     )
 
     # Subselect for timesteps where there is a color change
@@ -742,7 +765,7 @@ def test_pccnvc_causes_correct_color_changes(
     batch_size = 4096
     sequence_length = 500
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -751,7 +774,8 @@ def test_pccnvc_causes_correct_color_changes(
         return_change=True,
         return_change_mode="feature",
         initial_timestep_is_changepoint=False,
-        min_t_color_change=0,
+        min_t_color_change_after_random=0,
+        min_t_color_change_after_bounce=0,
         color_change_bounce_delay=0,
     )
 
@@ -764,7 +788,7 @@ def test_pccnvc_causes_correct_color_changes(
     # Precompute
     total_color_changes = len(timesteps_color_changes)
     total_timesteps = task.targets[:, :, 0].size
-    total_bounces = len(task.targets[task.targets[..., -1] == 1])
+    total_bounces = len(task.targets[task.targets[..., -2] == 1])
 
     # Percentage should relfect number of random color changes in timesteps where
     # there is no bounce
@@ -788,7 +812,7 @@ def test_min_t_color_change_causes_predictable_change_statistics(
     batch_size = 1024
     sequence_length = 500
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -798,7 +822,8 @@ def test_min_t_color_change_causes_predictable_change_statistics(
         return_change=True,
         return_change_mode="source",
         initial_timestep_is_changepoint=False,
-        min_t_color_change=min_t_color_change,
+        min_t_color_change_after_random=min_t_color_change,
+        min_t_color_change_after_bounce=min_t_color_change,
         color_change_bounce_delay=0,
     )
 
@@ -917,7 +942,7 @@ def test_color_change_bounce_delay_causes_correct_color_changes(
     batch_size = 1024
     sequence_length = 500
     features = 5
-    task = BouncingBallTask(
+    task = make_task(
         sequence_mode="static",
         batch_size=batch_size,
         sequence_length=sequence_length,

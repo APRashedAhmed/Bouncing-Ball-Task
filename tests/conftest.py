@@ -13,6 +13,7 @@ from bouncing_ball_task.color_controlled_bouncing_ball.dataset import (
     generate_color_controlled_dataset_with_videos
 )
 from bouncing_ball_task.color_controlled_bouncing_ball.no_change import generate_no_change_trials
+from bouncing_ball_task.utils.pyutils import set_global_seed
 from bouncing_ball_task.color_controlled_bouncing_ball.defaults import (
     ColorControlledDatasetParameters,
     ColorControlledTaskParameters,
@@ -173,7 +174,13 @@ def default_task_params():
 
 @pytest.fixture(autouse=True)
 def reset_random_state():
-    """Reset random state before each test for reproducibility."""
-    np.random.seed(42)
+    """Reset random state before each test for reproducibility.
+
+    Uses ``set_global_seed`` rather than ``np.random.seed`` alone: tasks that are
+    constructed without an explicit ``seed=`` call ``set_global_seed(None)``,
+    which draws its seed from the stdlib ``random`` module. Seeding only numpy
+    therefore left unseeded tests nondeterministic.
+    """
+    set_global_seed(42)
     yield
     # Cleanup if needed
