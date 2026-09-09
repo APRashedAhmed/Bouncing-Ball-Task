@@ -91,6 +91,9 @@ num_base_sequences: int = 10          # Number of base sequences
 seed: Optional[int] = None            # Random seed (False = caller seeds)
 duration: int = 50                    # Milliseconds PER FRAME
 variable_length: bool = False         # Fixed/variable length sequences
+video_length_min_s: float = 7.5       # Variable-length knobs: same names and
+exp_scale: float = 3.75               # values as HumanDatasetParameters
+fixed_video_length: Optional[int] = None
 initial_position: Optional[tuple] = None   # (N, 2), None => sampled
 initial_velocity: Optional[tuple] = None   # (N, 2), None => sampled
 control_end: Optional[tuple] = None        # (N,) bool, None => all False
@@ -108,7 +111,12 @@ if overridden to anything else.
 `length` is a FRAME COUNT (the full `sequence_length`, or the truncated count
 under `variable_length`), `duration` is milliseconds PER FRAME, and
 `length_ms = length * duration`. Variable-length trials keep their LAST `length`
-frames, so they require `control_end=True` for every trial.
+frames, so they require `control_end=True` for every trial. Their lengths are
+drawn by the human task's own sampler (`htaskutils.compute_dataset_size_video_based`,
+shared with `model_bouncing_ball`): `frames = rint((Exp(exp_scale s) +
+video_length_min_s) / duration)`, draws of 3x the minimum or more rejected;
+the task then integrates at `sequence_length = max(lengths)` (HDS:87), so a
+caller-supplied `sequence_length` is overridden under `variable_length`.
 
 ### On-disk format
 

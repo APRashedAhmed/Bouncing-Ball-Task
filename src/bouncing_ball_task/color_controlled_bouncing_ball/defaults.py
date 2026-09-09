@@ -65,6 +65,16 @@ class ColorControlledDatasetParameters:
     duration: int = 50            # Milliseconds PER FRAME (length_ms = length * duration)
     variable_length: bool = False # Whether to use variable length sequences
 
+    # Variable-length sampling knobs — the SAME names and values as
+    # human_bouncing_ball.defaults.HumanDatasetParameters (which the model
+    # dataset inherits), so a variable-length color-controlled dataset draws
+    # its per-trial lengths from the same distribution: frames =
+    # rint((Exp(exp_scale s) + video_length_min_s) / duration), draws of 3x the
+    # minimum or more rejected. A truthy fixed_video_length pins every trial.
+    video_length_min_s: float = 7.5
+    exp_scale: float = 3.75
+    fixed_video_length: Optional[int] = None
+
     # Controlled initial conditions (None => sampled)
     initial_position: Optional[tuple] = None
     initial_velocity: Optional[tuple] = None

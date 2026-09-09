@@ -235,8 +235,10 @@ def generate_color_controlled_dataset(
     Args:
         controlled_dataset_parameters: Dataset generation parameters
             (``num_base_sequences``, ``seed``, ``duration``,
-            ``variable_length``, ``initial_position``, ``initial_velocity``,
-            ``control_end``).
+            ``variable_length`` + its human-task knobs ``video_length_min_s``,
+            ``exp_scale``, ``fixed_video_length``, ``initial_position``,
+            ``initial_velocity``, ``control_end``). Under ``variable_length``
+            the task's ``sequence_length`` becomes the longest sampled trial.
         task_parameters: Task-parameter overrides merged under
             ``ColorControlledTaskParameters``.
         shuffle: Whether to shuffle the generated trials
@@ -252,6 +254,12 @@ def generate_color_controlled_dataset(
     total_videos = controlled_dataset_parameters.get('total_videos', None)
     duration = controlled_dataset_parameters.get('duration', defaults_module.duration)
     variable_length = controlled_dataset_parameters.get('variable_length', False)
+    _dataset_defaults = defaults_module.ColorControlledDatasetParameters
+    video_length_min_s = controlled_dataset_parameters.get(
+        'video_length_min_s', _dataset_defaults.video_length_min_s)
+    exp_scale = controlled_dataset_parameters.get('exp_scale', _dataset_defaults.exp_scale)
+    fixed_video_length = controlled_dataset_parameters.get(
+        'fixed_video_length', _dataset_defaults.fixed_video_length)
 
     num_variants = len(dict_trial_type_generation_funcs)
     num_colors = NUM_COLORS
@@ -299,6 +307,23 @@ def generate_color_controlled_dataset(
     seed = controlled_dataset_parameters.get('seed')
     resolved_seed = None if seed is False else pyutils.set_global_seed(seed)
     initial_rng_state = np.random.get_state()
+
+    # 1b. Sample the per-trial lengths FIRST, as the human/model datasets do
+    #     (HDS:257), and integrate at the longest sampled length (HDS:87) so
+    #     every trial can keep its LAST `length` frames. Fixed length draws
+    #     nothing, so the fixed-length RNG stream is unchanged.
+    num_trials = num_base_sequences * num_variants * num_colors
+    lengths = resolve_video_lengths(
+        num_trials,
+        base_task_parameters['sequence_length'],
+        variable_length,
+        duration,
+        video_length_min_s=video_length_min_s,
+        exp_scale=exp_scale,
+        fixed_video_length=fixed_video_length,
+    )
+    if variable_length:
+        base_task_parameters['sequence_length'] = int(lengths.max())
 
     # 2. Resolve explicit-else-sampled into explicit (N, 2) arrays.
     initial_position, initial_velocity = resolve_initial_conditions(
@@ -434,8 +459,9 @@ def generate_color_controlled_dataset(
     # `length` is a FRAME COUNT, `duration` is ms PER FRAME (human default 50),
     # `length_ms = length * duration`. Variable-length trials keep their LAST
     # `length` frames (HDS:448-450, 833-835), which is why they are restricted to
-    # control_end=True.
-    lengths = resolve_video_lengths(num_trials, sequence_length, variable_length)
+    # control_end=True. `lengths` were sampled at step 1b (i.i.d. per trial slot,
+    # so they need no permuting with the shuffle above).
+    assert lengths.shape == (num_trials,) and lengths.max() <= sequence_length
 
     if variable_length:
         output_samples = [s[-l:] for s, l in zip(final_samples, lengths)]
@@ -483,20 +509,43 @@ def generate_color_controlled_dataset(
     return task, output_samples, output_model_samples, output_targets, df_data, dict_metadata
 
 
-def resolve_video_lengths(num_trials, sequence_length, variable_length, min_fraction=0.5):
-    """Per-trial frame counts (the dataframe's ``length``).
+def resolve_video_lengths(
+    num_trials,
+    sequence_length,
+    variable_length,
+    duration,
+    video_length_min_s=None,
+    exp_scale=None,
+    fixed_video_length=None,
+):
+    """Per-trial frame counts (the dataframe's ``length``), mirroring the
+    human and model datasets.
 
-    Fixed length => every trial is the full ``sequence_length``. Variable length
-    => an exponential draw over frames, floored at ``min_fraction`` of the
-    sequence so a trial always retains enough visible frames for the change
-    statistics; trials are truncated from the FRONT (the last ``length`` frames
-    are kept), which is why ``variable_length`` requires ``control_end=True``.
+    Fixed length => every trial is the full ``sequence_length``. Variable
+    length => the human task's own sampler
+    (``htaskutils.compute_dataset_size_video_based``, the one
+    ``human_bouncing_ball`` and ``model_bouncing_ball`` draw from):
+    ``frames = rint((Exp(exp_scale s) + video_length_min_s) / duration)``,
+    rejecting draws of ``max_length_mult`` (3x) the minimum or more; a truthy
+    ``fixed_video_length`` pins every trial to that many frames. The caller
+    then integrates at ``sequence_length = max(lengths)`` (HDS:87) and each
+    trial keeps its LAST ``length`` frames (HDS:448-450), which is why
+    ``variable_length`` requires ``control_end=True``.
     """
     if not variable_length:
         return np.full(num_trials, sequence_length, dtype=int)
-    min_f = max(1, int(sequence_length * min_fraction))
-    draws = np.random.exponential(sequence_length / 2.0, num_trials)
-    return np.clip(np.round(draws), min_f, sequence_length).astype(int)
+    video_length_min_f = int(np.rint(video_length_min_s * 1000 / duration))
+    _, dict_lengths = htaskutils.compute_dataset_size_video_based(
+        num_trials,
+        video_length_min_f,
+        video_length_min_f * duration,
+        trial_type_split=[1.0],
+        fixed_video_length=fixed_video_length,
+        exp_scale_ms=exp_scale * 1000,
+        duration=duration,
+        trial_types=("color_controlled",),
+    )
+    return np.asarray(dict_lengths["color_controlled"], dtype=int)
 
 
 def generate_variant_metadata(variant_name, variant_func, color_events, num_colors):

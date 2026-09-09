@@ -379,13 +379,22 @@ class TestControlledTrajectory:
         with pytest.raises(ValueError, match="control_end"):
             _generate({'num_base_sequences': 2, 'seed': 5, 'variable_length': True,
                        'control_end': [True, False]}, dict(self.TASK))
-        # All control_end=True is allowed, and the arrays are truncated to `length`
+        # All control_end=True is allowed, and the arrays are truncated to `length`.
+        # Lengths follow the human/model sampler: frames =
+        # rint((Exp(exp_scale) + video_length_min_s) / duration), < 3x the
+        # minimum, and the task integrates at the longest sampled length (HDS:87).
+        duration, video_length_min_s = 50, 1.0
         task, samples, model_samples, targets, df, meta = _generate(
             {'num_base_sequences': 2, 'seed': 5, 'variable_length': True,
-             'control_end': [True, True]}, dict(self.TASK))
+             'control_end': [True, True], 'duration': duration,
+             'video_length_min_s': video_length_min_s, 'exp_scale': 0.5},
+            dict(self.TASK))
         assert df['control_end'].all()
-        T = self.TASK['sequence_length']
-        assert (df['length'] <= T).all() and (df['length'] >= T // 2).all()
+        min_f = int(round(video_length_min_s * 1000 / duration))
+        assert (df['length'] >= min_f).all() and (df['length'] < 3 * min_f).all()
+        assert df['length'].nunique() > 1
+        assert task.sequence_length == df['length'].max() == meta['video_length_max_f']
+        assert meta['task_parameters']['sequence_length'] == task.sequence_length
         requested = meta['controlled_parameters']['initial_position']
         for i, row in df.iterrows():
             length = int(row['length'])
@@ -599,8 +608,10 @@ class TestOnDiskProduct:
             generate_color_controlled_dataset_with_videos,
         )
         params = {'num_base_sequences': 2, 'seed': 77, 'duration': 50,
-                  'variable_length': True, 'control_end': [True, True]}
-        task_params = {'sequence_length': 60, 'size_frame': (256, 256), 'ball_radius': 10}
+                  'variable_length': True, 'control_end': [True, True],
+                  # small human-sampler knobs (min 20 frames) to keep the videos short
+                  'video_length_min_s': 1.0, 'exp_scale': 0.5}
+        task_params = {'size_frame': (256, 256), 'ball_radius': 10}
         task, samples, model_samples, targets, df, meta = \
             generate_color_controlled_dataset_with_videos(
                 dict(params), dict(task_params), output_dir=tmp_path, shuffle=True,
