@@ -13,7 +13,7 @@ pytest
 
 Run tests for a specific module:
 ```bash
-pytest tests/controlled_variants/test_no_change.py
+pytest tests/color_controlled_variants/test_no_change.py
 ```
 
 Run tests with verbose output:
@@ -30,7 +30,7 @@ The test suite uses markers to categorize tests:
 - `@pytest.mark.slow` - Slow tests (e.g., full dataset generation)
 - `@pytest.mark.dataset_generation` - Tests that generate datasets
 - `@pytest.mark.no_change` - Tests specific to no_change variant
-- `@pytest.mark.controlled_dataset` - Tests for controlled dataset generation
+- `@pytest.mark.color_controlled_dataset` - Tests for controlled dataset generation
 
 Run only unit tests:
 ```bash
@@ -82,10 +82,10 @@ python tests/run_validation.py --html
 
 The controlled dataset implementation includes the following tests:
 
-1. **test_controlled_dataset_endproduct.py** - End-product validation tests
+1. **test_color_controlled_dataset_endproduct.py** - End-product validation tests
 2. **test_change_vector_generation.py** - Change vector mechanics
-3. **controlled_variants/test_no_change.py** - Tests specific to the no_change variant
-4. **controlled_variants/base_variant_tests.py** - Shared base class for variant tests
+3. **color_controlled_variants/test_no_change.py** - Tests specific to the no_change variant
+4. **color_controlled_variants/base_variant_tests.py** - Shared base class for variant tests
 
 ### Shared Fixtures
 
@@ -93,14 +93,14 @@ The `tests/conftest.py` file provides shared fixtures used across tests:
 
 - `session_temp_dir` - Session-scoped temporary directory
 - `temp_output_dir` - Temporary directory for each test
-- `controlled_dataset_small` - Small controlled dataset (5 base sequences)
-- `controlled_dataset_with_videos` - Controlled dataset with saved video files
+- `color_controlled_dataset_small` - Small color controlled dataset (5 base sequences)
+- `color_controlled_dataset_with_videos` - Color controlled dataset with saved video files
 - `multiple_variants_dataset` - Dataset generated with multiple variants
-- `default_controlled_params` - Default `ControlledDatasetParameters` instance
-- `default_task_params` - Default `ControlledTaskParameters` instance
+- `default_controlled_params` - Default `ColorControlledDatasetParameters` instance
+- `default_task_params` - Default `ColorControlledTaskParameters` instance
 - `reset_random_state` - Autouse fixture that seeds NumPy to 42 before each test
 
-The `tests/controlled_variants/conftest.py` file adds variant-specific fixtures:
+The `tests/color_controlled_variants/conftest.py` file adds variant-specific fixtures:
 
 - `no_change_dataset` - Dataset generated with only the `no_change` variant
 
@@ -116,8 +116,8 @@ When adding new tests:
 Example:
 ```python
 @pytest.mark.unit
-@pytest.mark.controlled_dataset
-def test_new_feature(controlled_dataset_small):
+@pytest.mark.color_controlled_dataset
+def test_new_feature(color_controlled_dataset_small):
     """Test that new feature works correctly."""
     # Your test code here
     assert result == expected

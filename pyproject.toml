@@ -25,7 +25,7 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "dataset_generation: marks tests that generate full datasets",
-    "controlled_dataset: marks tests specific to controlled dataset generation",
+    "color_controlled_dataset: marks tests specific to controlled dataset generation",
     "variant: marks variant-specific tests",
     "no_change: marks tests specific to no_change variant",
 ]

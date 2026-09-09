@@ -49,15 +49,16 @@ def run_no_change_validation(args):
         # Run all no_change test files
         test_dir = Path(__file__).parent
         pytest_args.extend([
-            str(test_dir / "controlled_variants" / "test_no_change.py"),
-            str(test_dir / "test_controlled_dataset_endproduct.py"),
+            str(test_dir / "color_controlled_variants" / "test_no_change.py"),
+            str(test_dir / "test_color_controlled_dataset_endproduct.py"),
             str(test_dir / "test_change_vector_generation.py"),
+            str(test_dir / "test_color_controlled_format_parity.py"),
         ])
     
     # Add coverage if requested
     if args.coverage:
         pytest_args.extend([
-            "--cov=bouncing_ball_task.controlled_bouncing_ball",
+            "--cov=bouncing_ball_task.color_controlled_bouncing_ball",
             "--cov-report=term-missing"
         ])
     

@@ -10,7 +10,10 @@ import pandas as pd
 
 class BaseVariantTests:
     """Common tests that all controlled dataset variants should pass."""
-    
+
+    #: name -> color-authoring function for every variant in ``variant_dataset``
+    variant_functions: dict = {}
+
     @pytest.fixture
     def variant_dataset(self):
         """Override this fixture in variant-specific test classes."""
@@ -59,7 +62,7 @@ class BaseVariantTests:
     def test_three_color_rotation_pattern(self, variant_dataset):
         """Verify that each base sequence has exactly 3 color rotations."""
         df_data = variant_dataset['df_data']
-        num_base = variant_dataset['controlled_params']['num_base_sequences']
+        num_base = variant_dataset['color_controlled_params']['num_base_sequences']
         
         # Check each base sequence
         for base_idx in range(num_base):
@@ -75,26 +78,53 @@ class BaseVariantTests:
             assert final_colors == {'red', 'green', 'blue'}, \
                 f"Base sequence {base_idx} should have all 3 colors"
     
-    def test_change_vector_shape(self, variant_dataset):
-        """Verify change vectors have correct shape and structure."""
+    def test_variant_authors_color_channels_only(self, variant_dataset):
+        """Verify the color-only authoring contract for every registered variant.
+
+        ``variant(positions, bounce_frames, params) -> (N, T, 2)`` — the two
+        authored color channels [cc_bounce (7), cc_random (8)]; velocity
+        channels are never exposed for writing.
+        """
+        from bouncing_ball_task.color_controlled_bouncing_ball import dataset as cds
+
         targets = variant_dataset['targets']
-        
-        # Change vectors should be in indices 5:9
-        for i, target in enumerate(targets):
-            change_vector = target[:, 5:9]
-            assert change_vector.shape[1] == 4, \
-                f"Change vector should have 4 channels, got {change_vector.shape[1]}"
-            
-            # Verify all values are finite
-            assert np.all(np.isfinite(change_vector)), \
-                f"Change vector contains non-finite values in trial {i}"
+        df_data = variant_dataset['df_data']
+        metadata = variant_dataset['metadata']
+
+        # One base sequence per base index (any rotation): the read-only inputs
+        first_rows = df_data.drop_duplicates('base_sequence_idx').sort_values('base_sequence_idx')
+        base_targets = targets[first_rows.index.values]
+        positions = base_targets[:, :, :2]
+        bounce_frames = base_targets[:, :, 5].astype(bool)
+        params = {
+            'controlled_dataset_parameters': variant_dataset['color_controlled_params'],
+            'task_parameters': metadata['task_parameters'],
+            'initial_position': metadata['controlled_parameters']['initial_position'],
+            'initial_velocity': metadata['controlled_parameters']['initial_velocity'],
+            'control_end': metadata['controlled_parameters']['control_end'],
+        }
+
+        for variant_name in metadata['controlled_parameters']['variants']:
+            variant_func = self.variant_functions[variant_name]
+            color_events = variant_func(positions.copy(), bounce_frames.copy(), params)
+            assert isinstance(color_events, np.ndarray)
+            assert color_events.shape == positions.shape[:2] + (2,), \
+                f"Variant '{variant_name}' must return (N, T, 2), got {color_events.shape}"
+            assert np.all(np.isin(color_events, (0, 1))), \
+                f"Variant '{variant_name}' color events must be binary"
+            # The runtime invariant must accept what the variant authored
+            cds.validate_color_events(color_events, bounce_frames, variant_name)
+
+        # Velocity channels in the final targets are the derived ledger only
+        assert np.all(np.isfinite(targets[:, :, 5:9]))
+        assert targets.shape[2] == 9
     
     def test_dataframe_completeness(self, variant_dataset):
         """Verify dataframe has all required columns."""
         df_data = variant_dataset['df_data']
         
         required_columns = [
-            'idx', 'length', 'trial', 'variant',
+            'idx_trial', 'length', 'trial', 'variant',
             'base_sequence_idx', 'color_rotation_idx',
             'Final Color', 'Bounces', 'Random Bounces',
             'Color Change Bounce', 'Color Change Random',
@@ -108,7 +138,7 @@ class BaseVariantTests:
     def test_trial_count_formula(self, variant_dataset):
         """Verify total trial count matches formula: base_sequences × variants × 3."""
         df_data = variant_dataset['df_data']
-        num_base = variant_dataset['controlled_params']['num_base_sequences']
+        num_base = variant_dataset['color_controlled_params']['num_base_sequences']
         
         # Count unique variants
         num_variants = df_data['variant'].nunique()

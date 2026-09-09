@@ -8,14 +8,14 @@ import numpy as np
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from bouncing_ball_task.controlled_bouncing_ball.dataset import (
-    generate_controlled_dataset,
-    generate_controlled_dataset_with_videos
+from bouncing_ball_task.color_controlled_bouncing_ball.dataset import (
+    generate_color_controlled_dataset,
+    generate_color_controlled_dataset_with_videos
 )
-from bouncing_ball_task.controlled_bouncing_ball.no_change import generate_no_change_trials
-from bouncing_ball_task.controlled_bouncing_ball.defaults import (
-    ControlledDatasetParameters,
-    ControlledTaskParameters,
+from bouncing_ball_task.color_controlled_bouncing_ball.no_change import generate_no_change_trials
+from bouncing_ball_task.color_controlled_bouncing_ball.defaults import (
+    ColorControlledDatasetParameters,
+    ColorControlledTaskParameters,
 )
 
 
@@ -34,29 +34,28 @@ def temp_output_dir():
 
 
 @pytest.fixture
-def controlled_dataset_small():
-    """Generate a small controlled dataset for testing."""
-    controlled_params = {
+def color_controlled_dataset_small():
+    """Generate a small color controlled dataset for testing."""
+    color_controlled_params = {
         'num_base_sequences': 5,
         'seed': 42,
-        'duration': 1000,
+        'duration': 50,
         'variable_length': False,
     }
-    
+
     task_params = {
         'sequence_length': 100,
         'size_frame': (256, 256),
         'ball_radius': 10,
-        'probability_velocity_change': 0.075,
     }
-    
-    task, samples, model_samples, targets, df_data, metadata = generate_controlled_dataset(
-        controlled_params,
+
+    task, samples, model_samples, targets, df_data, metadata = generate_color_controlled_dataset(
+        color_controlled_params,
         task_params,
         shuffle=False,
         dict_trial_type_generation_funcs={'no_change': generate_no_change_trials}
     )
-    
+
     return {
         'task': task,
         'samples': samples,
@@ -64,30 +63,29 @@ def controlled_dataset_small():
         'targets': targets,
         'df_data': df_data,
         'metadata': metadata,
-        'controlled_params': controlled_params,
+        'color_controlled_params': color_controlled_params,
         'task_params': task_params,
     }
 
 
 @pytest.fixture
-def controlled_dataset_with_videos(temp_output_dir):
-    """Generate controlled dataset with video files."""
-    controlled_params = {
+def color_controlled_dataset_with_videos(temp_output_dir):
+    """Generate color controlled dataset with video files."""
+    color_controlled_params = {
         'num_base_sequences': 3,
         'seed': 123,
-        'duration': 1000,
+        'duration': 50,
         'variable_length': False,
     }
-    
+
     task_params = {
         'sequence_length': 50,
         'size_frame': (256, 256),
         'ball_radius': 10,
-        'probability_velocity_change': 0.075,
     }
-    
-    task, samples, model_samples, targets, df_data, metadata = generate_controlled_dataset_with_videos(
-        controlled_params,
+
+    task, samples, model_samples, targets, df_data, metadata = generate_color_controlled_dataset_with_videos(
+        color_controlled_params,
         task_params,
         output_dir=temp_output_dir,
         shuffle=False,
@@ -95,7 +93,7 @@ def controlled_dataset_with_videos(temp_output_dir):
     )
     
     # Find the generated dataset directory
-    dataset_dirs = list(temp_output_dir.glob("controlled_*"))
+    dataset_dirs = list(temp_output_dir.glob("color_controlled_*"))
     assert len(dataset_dirs) == 1, f"Expected 1 dataset directory, found {len(dataset_dirs)}"
     dataset_dir = dataset_dirs[0]
     
@@ -115,27 +113,32 @@ def controlled_dataset_with_videos(temp_output_dir):
 def multiple_variants_dataset():
     """Generate dataset with multiple variants for testing."""
     # Define a test variant
-    def generate_test_variant_trials(change_vectors, controlled_dataset_parameters, 
-                                   task_parameters, base_task):
-        """Test variant that doesn't modify change vectors."""
-        return change_vectors, {'variant_name': 'test_variant', 'description': 'Test variant'}
-    
-    controlled_params = {
+    def generate_test_variant_trials(positions, bounce_frames, params):
+        """Color-only test variant: a contingent color change on every bounce.
+
+        Authors channels [7 (cc_bounce), 8 (cc_random)] only, as (N, T, 2).
+        """
+        color_events = np.zeros(bounce_frames.shape + (2,), dtype=int)
+        color_events[:, :, 0] = bounce_frames
+        return color_events
+
+    generate_test_variant_trials.variant_metadata = {'description': 'Test variant'}
+
+    color_controlled_params = {
         'num_base_sequences': 4,
         'seed': 999,
-        'duration': 1000,
+        'duration': 50,
         'variable_length': False,
     }
-    
+
     task_params = {
         'sequence_length': 80,
         'size_frame': (256, 256),
         'ball_radius': 10,
-        'probability_velocity_change': 0.075,
     }
-    
-    task, samples, model_samples, targets, df_data, metadata = generate_controlled_dataset(
-        controlled_params,
+
+    task, samples, model_samples, targets, df_data, metadata = generate_color_controlled_dataset(
+        color_controlled_params,
         task_params,
         shuffle=False,
         dict_trial_type_generation_funcs={
@@ -151,7 +154,7 @@ def multiple_variants_dataset():
         'targets': targets,
         'df_data': df_data,
         'metadata': metadata,
-        'controlled_params': controlled_params,
+        'color_controlled_params': color_controlled_params,
         'task_params': task_params,
     }
 
@@ -159,13 +162,13 @@ def multiple_variants_dataset():
 @pytest.fixture
 def default_controlled_params():
     """Get default controlled dataset parameters."""
-    return ControlledDatasetParameters()
+    return ColorControlledDatasetParameters()
 
 
 @pytest.fixture
 def default_task_params():
     """Get default controlled task parameters."""
-    return ControlledTaskParameters()
+    return ColorControlledTaskParameters()
 
 
 @pytest.fixture(autouse=True)

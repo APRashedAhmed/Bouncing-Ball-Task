@@ -143,20 +143,20 @@ def test_fixed_seed_pins_concrete_first_sample():
     np.testing.assert_array_equal(first, PINNED_FIRST_SAMPLE_SEED_777)
 
 
-from bouncing_ball_task.controlled_bouncing_ball import dataset as cds
-from bouncing_ball_task.controlled_bouncing_ball import defaults as cdefaults
+from bouncing_ball_task.color_controlled_bouncing_ball import dataset as cds
+from bouncing_ball_task.color_controlled_bouncing_ball import defaults as cdefaults
 
 
 def _controlled_params(seed):
     dataset_params = {
-        key: getattr(cdefaults.ControlledDatasetParameters(), key)
-        for key in cdefaults.ControlledDatasetParameters.keys
+        key: getattr(cdefaults.ColorControlledDatasetParameters(), key)
+        for key in cdefaults.ColorControlledDatasetParameters.keys
     }
     dataset_params["num_base_sequences"] = 3
     dataset_params["seed"] = seed
     task_params = {
-        key: getattr(cdefaults.ControlledTaskParameters(), key)
-        for key in cdefaults.ControlledTaskParameters.keys
+        key: getattr(cdefaults.ColorControlledTaskParameters(), key)
+        for key in cdefaults.ColorControlledTaskParameters.keys
     }
     return dataset_params, task_params
 
@@ -164,15 +164,15 @@ def _controlled_params(seed):
 def test_controlled_seed_is_deterministic():
     """Same controlled seed -> identical samples across two full generations."""
     dp, tp = _controlled_params(seed=4242)
-    _, samples_a, _, _, _, _ = cds.generate_controlled_dataset(dp, tp, shuffle=False)
-    _, samples_b, _, _, _, _ = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    _, samples_a, _, _, _, _ = cds.generate_color_controlled_dataset(dp, tp, shuffle=False)
+    _, samples_b, _, _, _, _ = cds.generate_color_controlled_dataset(dp, tp, shuffle=False)
     assert np.array_equal(samples_a, samples_b)
 
 
 def test_controlled_resolved_seed_recorded():
     """The metadata records the resolved seed actually used (P0-2 + P0-3)."""
     dp, tp = _controlled_params(seed=4242)
-    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    _, _, _, _, _, meta = cds.generate_color_controlled_dataset(dp, tp, shuffle=False)
     assert meta["resolved_seed"] == 4242
 
 
@@ -180,7 +180,7 @@ def test_controlled_unseeded_records_real_seed_not_zero():
     """An unseeded (seed=None) controlled run records the *drawn* seed, never a
     false 0 (P0-3). The drawn seed is a real integer and is almost surely != 0."""
     dp, tp = _controlled_params(seed=None)
-    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    _, _, _, _, _, meta = cds.generate_color_controlled_dataset(dp, tp, shuffle=False)
     assert isinstance(meta["resolved_seed"], int)
     # name must embed the resolved seed, not the literal 0
     assert str(meta["resolved_seed"]) in meta["name"]
@@ -192,7 +192,7 @@ def test_controlled_seed_false_name_has_no_false_zero():
     false `0` (P0-3 / right-and-works-6). Caller seeds the global RNG first."""
     np.random.seed(2024)
     dp, tp = _controlled_params(seed=False)
-    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    _, _, _, _, _, meta = cds.generate_color_controlled_dataset(dp, tp, shuffle=False)
     assert meta["resolved_seed"] is None
     # the old `get('seed', 0)` bug baked a literal 0 into the name; the fixed code
     # must reflect the real (un-resolved) escape-hatch value instead. NOTE: in
@@ -292,14 +292,14 @@ def test_model_seed_is_deterministic():
 
     Invariant guard; the distinguishing P0-2 check is test_human_pipeline_seeds_once.
 
-    Calls hds.generate_video_dataset directly with model trial type funcs and
-    model defaults (same code path as generate_model_dataset_nongray) to bypass
-    the generate_model_dataset_nongray wrapper, which hard-codes _adjust_labels=True
-    (the default) and triggers estimate_effective_hazard_rates, which fails when
-    total_dataset_length=None (a pre-existing bug unrelated to P0-2). Using
-    _adjust_labels=False with model defaults and validate=False exercises the full
-    seeding inheritance path (seed flows from NongrayDatasetParameters through
-    generate_video_parameters into per-trial BouncingBallTask constructions)."""
+    Calls hds.generate_video_dataset directly with model trial funcs and model
+    defaults (the same seeding path generate_model_dataset_nongray uses) with
+    _adjust_labels=False/validate=False, exercising the full seeding-inheritance
+    path (seed flows from NongrayDatasetParameters through
+    generate_video_parameters into per-trial BouncingBallTask constructions).
+    Note: as of E5 (estimate-size decoupling) generate_model_dataset_nongray
+    itself runs to completion with adjusted labels; its end-to-end determinism is
+    covered by test_model_nongray_deterministic_separate_processes."""
     dataset_params = {
         key: getattr(mdefaults.NongrayDatasetParameters(), key)
         for key in mdefaults.NongrayDatasetParameters.keys
@@ -417,7 +417,7 @@ def test_capture_provenance_uses_supplied_rng_state():
 
 def test_controlled_metadata_has_provenance():
     dp, tp = _controlled_params(seed=4242)
-    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    _, _, _, _, _, meta = cds.generate_color_controlled_dataset(dp, tp, shuffle=False)
     assert "provenance" in meta
     assert "git_sha" in meta["provenance"]
     assert "numpy" in meta["provenance"]["library_versions"]
@@ -429,7 +429,7 @@ def test_controlled_provenance_rng_state_is_pre_draw():
     restoring it replays the trajectory. It must equal the state
     set_global_seed(seed) leaves before any draw; a POST-draw state would not."""
     dp, tp = _controlled_params(seed=4242)
-    _, _, _, _, _, meta = cds.generate_controlled_dataset(dp, tp, shuffle=False)
+    _, _, _, _, _, meta = cds.generate_color_controlled_dataset(dp, tp, shuffle=False)
     recorded = meta["provenance"]["numpy_rng_state"]
     pyutils.set_global_seed(4242)
     expected = np.random.get_state()
@@ -476,7 +476,7 @@ def test_controlled_pipeline_seeds_once(monkeypatch):
     monkeypatch.setattr(pyutils, "set_global_seed", spy)
 
     dp, tp = _controlled_params(seed=4242)
-    cds.generate_controlled_dataset(dp, tp, shuffle=True)
+    cds.generate_color_controlled_dataset(dp, tp, shuffle=True)
 
     assert calls == [4242], (
         f"expected exactly one global seeding (the base-task anchor 4242); got "
@@ -548,7 +548,7 @@ def _assert_default_color_set(task):
     """C2 byte-exact no-op proof on a PRODUCTION-PATH run: the returned task's
     color set must be the unchanged in-set DEFAULT_COLORS — proving NO prepend
     fired on this exact path (a fired prepend would make valid_colors (4, 3) /
-    num_colors 4). generate_video_dataset and generate_controlled_dataset both
+    num_colors 4). generate_video_dataset and generate_color_controlled_dataset both
     return the BouncingBallTask as element [0]; it stores .valid_colors and
     .num_colors from set_color_parameters (bouncing_ball.py:289-292)."""
     vc = np.asarray(DEFAULT_COLORS)
@@ -604,8 +604,8 @@ def test_color_paths_complete_and_deterministic_post_e4():
 
     # (c) controlled num_base_sequences=3 seed=4242
     cdp, ctp = _controlled_params(seed=4242)
-    c_a = cds.generate_controlled_dataset(cdp, ctp, shuffle=False)
-    c_b = cds.generate_controlled_dataset(cdp, ctp, shuffle=False)
+    c_a = cds.generate_color_controlled_dataset(cdp, ctp, shuffle=False)
+    c_b = cds.generate_color_controlled_dataset(cdp, ctp, shuffle=False)
     assert np.array_equal(c_a[1], c_b[1])
     _assert_default_color_set(c_a[0])   # no prepend fired on the controlled path
 
@@ -654,3 +654,69 @@ def test_estimate_n_sizes_by_total_videos(monkeypatch):
         dp, tp, _MODEL_TRIAL_FUNCS, defaults=mdefaults, estimate_n=500)
     assert seen["tdl"] is None     # untouched
     assert seen["tv"] == 500
+
+
+import subprocess
+import sys
+import textwrap
+
+
+def test_model_nongray_invokes_label_adjustment(monkeypatch):
+    """C5: generate_model_dataset_nongray completes and invokes
+    adjust_dataset_labels (effective-hazard-rate labels are applied). Uses a
+    small estimate_n (patched) and small total_videos for speed."""
+    monkeypatch.setattr(mdefaults, "ESTIMATE_N", 24)  # small for the test
+
+    calls = {"n": 0}
+    real = hds.adjust_dataset_labels
+
+    def spy(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+
+    monkeypatch.setattr(hds, "adjust_dataset_labels", spy)
+
+    dp = {k: getattr(mdefaults.NongrayDatasetParameters(), k)
+          for k in mdefaults.NongrayDatasetParameters.keys}
+    dp["seed"] = 7
+    dp["total_videos"] = 12
+    tp = {k: getattr(mdefaults.TaskParameters(), k)
+          for k in mdefaults.TaskParameters.keys}
+
+    out = mds.generate_model_dataset_nongray(dp, tp)
+    assert out is not None
+    assert calls["n"] == 1, f"expected adjust_dataset_labels once, got {calls['n']}"
+
+
+_MODEL_DET_SNIPPET = textwrap.dedent('''
+    import numpy as np, hashlib
+    from bouncing_ball_task.model_bouncing_ball import dataset as mds
+    from bouncing_ball_task.model_bouncing_ball import defaults as mdefaults
+    mdefaults.ESTIMATE_N = 24  # small, for speed
+    dp = {k: getattr(mdefaults.NongrayDatasetParameters(), k)
+          for k in mdefaults.NongrayDatasetParameters.keys}
+    dp["seed"] = 7
+    dp["total_videos"] = 12
+    tp = {k: getattr(mdefaults.TaskParameters(), k)
+          for k in mdefaults.TaskParameters.keys}
+    out = mds.generate_model_dataset_nongray(dp, tp)
+    h = hashlib.sha256()
+    for s in out[1]:
+        h.update(np.asarray(s).tobytes())
+    print(h.hexdigest())
+''')
+
+
+@pytest.mark.slow
+def test_model_nongray_deterministic_separate_processes():
+    """C6: two same-seed runs of generate_model_dataset_nongray in FRESH
+    interpreters produce identical sample hashes. Separate processes defeat the
+    set_global_seed(None) coincidental-determinism trap (pyutils.py:36-37) that
+    a same-process output-equality check would false-pass."""
+    def run():
+        return subprocess.check_output(
+            [sys.executable, "-c", _MODEL_DET_SNIPPET], text=True).strip()
+
+    first = run()
+    second = run()
+    assert first == second and len(first) == 64
