@@ -9,7 +9,7 @@ This repository contains the Bouncing Ball Task implementation used for computat
 ### Requirements
 - **Framework**: This project uses `pytest` as the testing framework
 - **Location**: All tests must be placed in the `tests/` directory
-- **Naming**: Test files should follow the pattern `test_*.py` or `*_test.py`
+- **Naming**: Test files must follow the pattern `test_*.py` (the only pattern `pyproject.toml` collects)
 
 ### Running Tests
 
