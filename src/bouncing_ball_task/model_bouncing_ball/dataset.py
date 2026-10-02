@@ -36,6 +36,14 @@ def generate_model_dataset_nongray(
         "cc_rvc": generate_cc_rvc_trials,
     },
 ):
+    hz_effective = hds.estimate_effective_hazard_rates(
+        model_dataset_parameters,
+        task_parameters,
+        dict_trial_type_generation_funcs,
+        defaults=defaults,
+        estimate_n=defaults.ESTIMATE_N,
+    )
+
     task, output_samples, output_model_samples, output_targets, df_data, dict_metadata = hds.generate_video_dataset(
         model_dataset_parameters,
         task_parameters,
@@ -43,6 +51,7 @@ def generate_model_dataset_nongray(
         shuffle=shuffle,
         validate=validate,
         defaults=defaults,
+        hz_effective=hz_effective,
     )
 
     color_final = df_data["Final Color"].values
